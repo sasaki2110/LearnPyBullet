@@ -13,9 +13,9 @@ except ImportError:
     pass  # dotenvがインストールされていない場合はスキップ
 from langchain.chat_models import init_chat_model
 from langgraph.graph import StateGraph, START, END
-from utils.state import State
-from utils.nodes import extract_topic, refine_topic, generate_joke
-from utils.logging_config import setup_logging, get_logger, get_log_level
+from .utils.state import State
+from .utils.nodes import extract_topic, refine_topic, generate_joke
+from .utils.logging_config import setup_logging, get_logger, get_log_level
 
 # ロギングをセットアップ
 log_level = get_log_level()

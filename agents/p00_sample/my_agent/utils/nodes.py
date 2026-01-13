@@ -2,8 +2,8 @@
 ノード関数の実装
 """
 from langchain.messages import HumanMessage, SystemMessage, AIMessage
-from utils.state import State
-from utils.logging_config import get_logger
+from .state import State
+from .logging_config import get_logger
 
 # ロガーを取得
 logger = get_logger('nodes')
