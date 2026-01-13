@@ -1,6 +1,7 @@
 # requirements.txt
 pybullet==3.2.6
 numpy          # 物理演算の結果を扱う際にほぼ必須となります
+imageio[ffmpeg]  # 動画録画用（r2d2_recording.pyで使用）
 
 # LangGraph関連の依存関係
 langgraph==1.0.5
