@@ -1,0 +1,4 @@
+# requirements.txt
+pybullet==3.2.6
+numpy          # 物理演算の結果を扱う際にほぼ必須となります
+

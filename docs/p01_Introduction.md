@@ -1,3 +1,7 @@
+この文書は PyBullet Qucikstart Guide.pdf の序盤を、cursor で翻訳した内容です。
+ここから、もう少しかみ砕いた学習プランを作成していく予定です。
+（かみ砕いたプランはGeminiへ依頼予定。）
+
 # はじめに
 
 PyBulletは、ロボティクスシミュレーションと機械学習のための高速で使いやすいPythonモジュールであり、シミュレーションから実機への転移（sim-to-real transfer）に焦点を当てています。PyBulletを使用すると、URDF、SDF、MJCF、その他のファイル形式から関節を持つ物体（articulated bodies）を読み込むことができます。PyBulletは順動力学シミュレーション、逆動力学計算、順運動学・逆運動学、衝突検出、レイ交差クエリを提供します。Bullet Physics SDKには、シミュレートされたMinitaur四足ロボット、TensorFlow推論を使用して動作するヒューマノイド、物体を把持するKUKAアームなどのPyBulletロボティクス例が含まれています。縮約座標マルチボディ、剛体、変形可能な物体は、統一されたLCP制約ソルバーによって処理され、これは論文のArticulated Islands Algorithmと同様です。線形時間順動力学とソルバーA行列の作成には、Articulated Body Algorithmが使用されます。
@@ -14,6 +18,8 @@ PyBulletのインストールは、(sudo) pip install PyBullet（Python 2.x）�
 ## Hello PyBullet World
 
 以下は、ステップバイステップで説明するPyBulletの紹介スクリプトです：
+
+```python
 import pybullet as p
 import time
 import pybullet_data
@@ -33,6 +39,7 @@ time.sleep(1./240.)
 cubePos, cubeOrn = p.getBasePositionAndOrientation(boxId)
 print(cubePos,cubeOrn)
 p.disconnect()
+```
 
 ## connect, disconnect, bullet_client
 
