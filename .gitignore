@@ -12,3 +12,6 @@ __pycache__/
 
 # テストキャッシュファイル
 .pytest_cache/
+
+# 動画
+*.mp4
