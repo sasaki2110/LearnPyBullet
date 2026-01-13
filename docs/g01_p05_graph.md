@@ -88,3 +88,159 @@ LangGraph などの AI エージェント開発に戻る際、以下の **「3�
 
 * 「この PyBullet ロジックを、実際に LangGraph の `tools.py` に組み込む具体的な方法」を考えますか？
 * それとも、PyBullet 側で「物を掴む（グリッパー）」操作について深掘りしますか？
+
+PyBullet の物理演算ロジックを LangGraph の Tool として統合する具体的な方法を解説します。
+
+LangGraph でロボット操作を扱う際のポイントは、**「シミュレーションの状態（インスタンス）をどのように維持するか」**という点です。AI が「トレイに移動して」の後に「次は掴んで」と連続して命令する場合、シミュレーションを毎回リセットせず、同じ状態を保持する必要があります。
+
+---
+
+## 1. ディレクトリ構成と依存関係
+
+プロジェクトフォルダ（`~/LearnPyBullet`）内に以下のファイルを用意します。
+
+```text
+LearnPyBullet/
+├── requirements.txt
+├── srcs/
+│   ├── robot_sim.py   # PyBulletのロジックをカプセル化したクラス
+│   └── tools.py       # LangChain/LangGraph用のTool定義
+└── main_graph.py      # LangGraphのメインロジック
+
+```
+
+`requirements.txt` には以下を追加してください。
+
+```text
+langgraph
+langchain-openai  # または使用するモデルのライブラリ
+
+```
+
+---
+
+## 2. PyBullet ロジックのカプセル化 (`srcs/robot_sim.py`)
+
+AI が呼び出しやすいよう、前回の `arm_tool.py` をさらに整理します。
+
+```python
+import pybullet as p
+import pybullet_data
+from typing import List
+
+class PandaSim:
+    def __init__(self, mode=p.DIRECT):
+        self.client = p.connect(mode)
+        p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        p.setGravity(0, 0, -9.81)
+        p.loadURDF("plane.urdf")
+        self.robot_id = p.loadURDF("franka_panda/panda.urdf", useFixedBase=True)
+        self.tray_id = p.loadURDF("tray/tray.urdf", basePosition=[0.5, 0.0, 0.01])
+        self.ee_index = 11
+
+    def move_arm(self, x: float, y: float, z: float) -> str:
+        """指定した座標にアームを移動させ、結果を文字列で返す"""
+        target = [x, y, z]
+        # 240ステップ（約1秒分）実行
+        for _ in range(240):
+            joint_poses = p.calculateInverseKinematics(self.robot_id, self.ee_index, target)
+            for j in range(len(joint_poses)):
+                p.setJointMotorControl2(self.robot_id, j, p.POSITION_CONTROL, joint_poses[j])
+            p.stepSimulation()
+        
+        pos = p.getLinkState(self.robot_id, self.ee_index)[4]
+        return f"移動完了。現在の手先位置は x:{pos[0]:.2f}, y:{pos[1]:.2f}, z:{pos[2]:.2f} です。"
+
+    def get_object_pos(self) -> str:
+        """トレイの現在位置を取得する"""
+        pos, _ = p.getBasePositionAndOrientation(self.tray_id)
+        return f"トレイは座標 x:{pos[0]:.2f}, y:{pos[1]:.2f}, z:{pos[2]:.2f} にあります。"
+
+```
+
+---
+
+## 3. LangGraph 用の Tool 定義 (`srcs/tools.py`)
+
+LangChain の `@tool` デコレータを使用して、AI が理解できる形式にします。ここでは**シングルトン・パターン**（またはグローバル変数）を使用して、シミュレーションの状態を維持します。
+
+```python
+from langchain_core.tools import tool
+from .robot_sim import PandaSim
+import pybullet as p
+
+# シミュレーションのインスタンスを保持（DIRECTモード推奨）
+sim = PandaSim(mode=p.DIRECT)
+
+@tool
+def get_tray_position():
+    """シミュレーション空間内のトレイの現在位置を取得します。"""
+    return sim.get_object_pos()
+
+@tool
+def move_robot_arm(x: float, y: float, z: float):
+    """
+    ロボットアームを指定された x, y, z 座標に移動させます。
+    トレイを触る場合は、トレイの座標の少し上を指定してください。
+    """
+    return sim.move_arm(x, y, z)
+
+# Toolのリスト
+robot_tools = [get_tray_position, move_robot_arm]
+
+```
+
+---
+
+## 4. LangGraph への組み込み (`main_graph.py`)
+
+最後に、これらを LangGraph のグラフとして組み立てます。
+
+```python
+from typing import Annotated, TypedDict
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langchain_openai import ChatOpenAI # 使用するモデルに変更してください
+from .srcs.tools import robot_tools
+
+# 1. 状態の定義
+class State(TypedDict):
+    messages: Annotated[list, add_messages]
+
+# 2. モデルのセットアップ
+model = ChatOpenAI(model="gpt-4o").bind_tools(robot_tools)
+
+# 3. ノード関数の定義
+def chatbot(state: State):
+    return {"messages": [model.invoke(state["messages"])]}
+
+# 4. グラフの構築
+from langgraph.prebuilt import ToolNode, tools_condition
+
+builder = StateGraph(State)
+builder.add_node("chatbot", chatbot)
+builder.add_node("tools", ToolNode(robot_tools))
+
+builder.add_edge(START, "chatbot")
+builder.add_conditional_edges("chatbot", tools_condition)
+builder.add_edge("tools", "chatbot")
+
+graph = builder.compile()
+
+# 5. 実行
+# config = {"configurable": {"thread_id": "1"}}
+# graph.invoke({"messages": [("user", "トレイの場所を調べて、その20cm上に移動して")]})
+
+```
+
+---
+
+## 学習内容のまとめとメリット
+
+* **状態の永続化**: `sim` インスタンスを Tool の外で保持することで、AI が「トレイを確認（Tool A）」→「移動（Tool B）」と連続して実行しても、シミュレーション内の時間は連続して流れます。
+* **物理的なフィードバック**: AI がもし不可能な座標（例えば地面より下）を指定しても、PyBullet の `calculateInverseKinematics` の結果を Tool が返すことで、AI は「その指示は物理的に不可能だった」と自覚し、推論を修正できます。
+
+**次は何をしましょうか？**
+
+* この構成を実際に動かせるよう、`main_graph.py` の詳細な実行コードや API キー設定を含めた完成版を作成しますか？
+* それとも、PyBullet の `getContactPoints` を使って、「トレイにぶつかったら AI に警告を出す」ような、より「物理らしい」フィードバック機能を追加しますか？
