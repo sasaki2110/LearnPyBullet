@@ -16,7 +16,7 @@ def main():
     p.setGravity(0, 0, -9.81)
 
     # 地面とロボットをロード
-    p.loadURDF("plane.urdf")
+    plane_id = p.loadURDF("plane.urdf")
     robot_id = p.loadURDF("r2d2.urdf", basePosition=[0, 0, 2.0]) # 少し高めから
 
     print("Windows側にPyBulletのウィンドウが表示されているはずです。")
@@ -24,11 +24,17 @@ def main():
     # ゆっくり落下する様子を見るために sleep を入れる
     for i in range (1000):
         p.stepSimulation()
+        """現実世界の時間に合わせる（１倍速でシミュレーションする）"""
         time.sleep(1./240.) # 物理シミュレーションの標準的な時間刻み
         
         if i % 100 == 0:
             pos, _ = p.getBasePositionAndOrientation(robot_id)
             print(f"ステップ {i}: 高さ {pos[2]:.2f}m")
+        
+        contacts = p.getContactPoints(robot_id, plane_id)
+        """床と接触中かどうかを取得する"""
+        if len(contacts) > 0:
+            print(f"床と接触中！接触点の数: {len(contacts)}")
 
     p.disconnect()
 

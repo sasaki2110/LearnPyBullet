@@ -8,7 +8,8 @@ def main():
     p.setGravity(0, 0, -9.81)
 
     p.loadURDF("plane.urdf")
-    tray_id = p.loadURDF("tray/tray.urdf", basePosition=[0.5, 0.0, 0.01])
+    #tray_id = p.loadURDF("tray/tray.urdf", basePosition=[0.5, 0.0, 0.01])
+    tray_id = p.loadURDF("tray/tray.urdf", basePosition=[0.5, 0.0, 0.2])
     robot_id = p.loadURDF("franka_panda/panda.urdf", useFixedBase=True)
 
     # Pandaアームの手先（エンドエフェクタ）のインデックス番号
@@ -45,6 +46,12 @@ def main():
             ls = p.getLinkState(robot_id, end_effector_index)
             actual_pos = ls[4] # 世界座標系での位置
             print(f"Step {i}: 現在の手先位置 = {actual_pos}")
+
+        contacts = p.getContactPoints(robot_id, tray_id)
+        """トレイと接触中かどうかを取得する"""
+        if len(contacts) > 0:
+            print(f"トレイと接触中！接触点の数: {len(contacts)}")
+            break
 
         time.sleep(1./240.)
 
