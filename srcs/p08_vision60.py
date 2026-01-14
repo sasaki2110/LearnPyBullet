@@ -223,6 +223,12 @@ def main():
     prev_toe_heights = None
     prev_base_pos = None
     
+    # 立ち上がり完了後の安定化検知用の変数
+    standing_up_completed_step = None  # 立ち上がり完了ステップ
+    stabilization_detected = False  # 安定化が検知されたかどうか
+    prev_stability_metrics = None  # 前回の安定性指標（姿勢変化率、位置変化率など）
+    stability_check_window = 20  # 安定性チェックのウィンドウサイズ（ステップ数）
+    
     total_simulation_steps = 3000  # 姿勢維持のステップ数（立ち上がり2000 + 安定化500ステップを完了させるため延長）
     for i in range(total_simulation_steps):
         # ベース姿勢を取得（姿勢フィードバック制御用）
@@ -342,6 +348,11 @@ def main():
             # 進行度を計算（0.0～1.0）
             elapsed_steps = i - standing_up_start_step
             progress = min(1.0, elapsed_steps / standing_up_duration)
+            
+            # 立ち上がり完了を検知（progress >= 1.0になった瞬間）
+            if standing_up_completed_step is None and progress >= 1.0:
+                standing_up_completed_step = i
+                print(f"  ✅ 立ち上がり完了 (ステップ{i}): 目標角度への到達完了")
             
             # 立ち上がり中の進行度をログ出力（100ステップごと）
             if elapsed_steps % 100 == 0 and elapsed_steps < standing_up_duration:
@@ -819,6 +830,235 @@ def main():
                 new_orn = [0, 0, 0, 1]  # 水平姿勢
                 p.resetBasePositionAndOrientation(robot_id, new_pos, new_orn)
                 p.resetBaseVelocity(robot_id, linearVelocity=[0, 0, 0], angularVelocity=[0, 0, 0])
+        
+        # 立ち上がり完了後の安定化検知（「シュッと安定する瞬間」を検知）
+        if standing_up_completed_step is not None and not stabilization_detected:
+            # 立ち上がり完了後の経過ステップ数
+            elapsed_after_completion = i - standing_up_completed_step
+            
+            # 10ステップごとに安定性をチェック（立ち上がり完了直後は頻繁にチェック）
+            if elapsed_after_completion > 0 and elapsed_after_completion % 10 == 0:
+                # 現在の状態を取得
+                current_knee_angles = {}
+                for leg_name, joint_indices in leg_joints.items():
+                    knee_joint = joint_indices[2]
+                    knee_state = p.getJointState(robot_id, knee_joint)
+                    current_knee_angles[leg_name] = math.degrees(knee_state[0])
+                
+                # 接地状態を取得
+                leg_index_map = {'front_left': 0, 'front_right': 1, 'back_left': 2, 'back_right': 3}
+                contact_info = {}
+                all_legs_grounded = True
+                for leg_name, leg_idx in leg_index_map.items():
+                    toe_link_name = f"toe{leg_idx}"
+                    toe_link_idx = link_name_to_index.get(toe_link_name, -1)
+                    if toe_link_idx >= 0:
+                        try:
+                            contact_points = p.getContactPoints(robot_id, plane_id, linkIndexA=toe_link_idx)
+                            is_contact = len(contact_points) > 0
+                            total_force = len(contact_points) * 10.0
+                            contact_info[leg_name] = {
+                                'is_contact': is_contact,
+                                'force': total_force,
+                                'contact_count': len(contact_points)
+                            }
+                            if not is_contact:
+                                all_legs_grounded = False
+                        except:
+                            contact_info[leg_name] = {'is_contact': False, 'force': 0.0, 'contact_count': 0}
+                            all_legs_grounded = False
+                    else:
+                        contact_info[leg_name] = {'is_contact': False, 'force': 0.0, 'contact_count': 0}
+                        all_legs_grounded = False
+                
+                # 安定性指標を計算
+                # 1. 姿勢の変化率（roll/pitchの変化速度）
+                roll_change_rate = abs(current_roll - prev_roll) if prev_roll is not None else 999.0
+                pitch_change_rate = abs(current_pitch - prev_pitch) if prev_pitch is not None else 999.0
+                
+                # 2. 位置の変化率（特にZ方向の高さ）
+                z_change_rate = abs(current_pos[2] - prev_base_pos[2]) if prev_base_pos is not None else 999.0
+                
+                # 3. 膝角度の変化率（目標角度に到達して変化が止まる）
+                knee_change_rates = {}
+                if prev_knee_angles is not None:
+                    for leg_name in leg_joints.keys():
+                        knee_change_rates[leg_name] = abs(current_knee_angles[leg_name] - prev_knee_angles[leg_name])
+                else:
+                    for leg_name in leg_joints.keys():
+                        knee_change_rates[leg_name] = 999.0
+                max_knee_change_rate = max(knee_change_rates.values()) if knee_change_rates else 999.0
+                
+                # 安定性指標を保存
+                current_stability_metrics = {
+                    'roll_change_rate': roll_change_rate,
+                    'pitch_change_rate': pitch_change_rate,
+                    'z_change_rate': z_change_rate,
+                    'max_knee_change_rate': max_knee_change_rate,
+                    'all_legs_grounded': all_legs_grounded,
+                    'roll': current_roll,
+                    'pitch': current_pitch,
+                    'z': current_pos[2]
+                }
+                
+                # 前回の指標と比較して、急に安定した瞬間を検知
+                if prev_stability_metrics is not None:
+                    # 安定化の条件：
+                    # 1. 姿勢の変化率が急に小さくなる（0.5度/10ステップ以下）
+                    # 2. 位置の変化率が急に小さくなる（0.01m/10ステップ以下）
+                    # 3. 膝角度の変化率が急に小さくなる（0.5度/10ステップ以下）
+                    # 4. 4本すべての脚が接地している
+                    # 5. 姿勢がほぼ水平（roll/pitchが±5度以内）
+                    
+                    roll_stabilized = roll_change_rate < 0.5 and prev_stability_metrics['roll_change_rate'] >= 0.5
+                    pitch_stabilized = pitch_change_rate < 0.5 and prev_stability_metrics['pitch_change_rate'] >= 0.5
+                    z_stabilized = z_change_rate < 0.01 and prev_stability_metrics['z_change_rate'] >= 0.01
+                    knee_stabilized = max_knee_change_rate < 0.5 and prev_stability_metrics['max_knee_change_rate'] >= 0.5
+                    posture_stable = abs(current_roll) < 5.0 and abs(current_pitch) < 5.0
+                    
+                    # 安定化が検知されたかどうか
+                    if (roll_stabilized or pitch_stabilized or z_stabilized or knee_stabilized) and all_legs_grounded and posture_stable:
+                        stabilization_detected = True
+                        print(f"\n  🎯 安定化検知！ (ステップ{i}, 立ち上がり完了から{elapsed_after_completion}ステップ後):")
+                        print(f"     姿勢: roll={current_roll:.1f}° (変化率: {roll_change_rate:.3f}°/10step), pitch={current_pitch:.1f}° (変化率: {pitch_change_rate:.3f}°/10step)")
+                        print(f"     位置: Z={current_pos[2]:.3f}m (変化率: {z_change_rate:.4f}m/10step)")
+                        print(f"     膝角度変化率: {max_knee_change_rate:.3f}°/10step")
+                        print(f"     接地状態: {'✅ 4本すべて接地' if all_legs_grounded else '⚠️ 一部浮上'}")
+                        print(f"     安定化の兆候:")
+                        if roll_stabilized:
+                            print(f"       - rollの変化率が急に小さくなった ({prev_stability_metrics['roll_change_rate']:.3f}° → {roll_change_rate:.3f}°/10step)")
+                        if pitch_stabilized:
+                            print(f"       - pitchの変化率が急に小さくなった ({prev_stability_metrics['pitch_change_rate']:.3f}° → {pitch_change_rate:.3f}°/10step)")
+                        if z_stabilized:
+                            print(f"       - Z位置の変化率が急に小さくなった ({prev_stability_metrics['z_change_rate']:.4f}m → {z_change_rate:.4f}m/10step)")
+                        if knee_stabilized:
+                            print(f"       - 膝角度の変化率が急に小さくなった ({prev_stability_metrics['max_knee_change_rate']:.3f}° → {max_knee_change_rate:.3f}°/10step)")
+                        
+                        # 安定化時の各脚の詳細な状態をログ出力
+                        print(f"\n  📐 安定化時の各脚の状態:")
+                        for leg_name, joint_indices in leg_joints.items():
+                            # ジョイント角度を取得
+                            joint_angles = []
+                            for joint_idx in joint_indices:
+                                joint_state = p.getJointState(robot_id, joint_idx)
+                                joint_angles.append(math.degrees(joint_state[0]))
+                            
+                            # 脚のインデックスを取得
+                            leg_index_map = {'front_left': 0, 'front_right': 1, 'back_left': 2, 'back_right': 3}
+                            leg_idx = leg_index_map[leg_name]
+                            
+                            # リンク名からインデックスを取得
+                            upper_link_name = f"upper{leg_idx}"
+                            lower_link_name = f"lower{leg_idx}"
+                            upper_link_idx = link_name_to_index.get(upper_link_name, -1)
+                            lower_link_idx = link_name_to_index.get(lower_link_name, -1)
+                            
+                            # 膝上・膝下リンクの角度を取得
+                            upper_pitch = None
+                            lower_pitch = None
+                            if upper_link_idx >= 0:
+                                try:
+                                    upper_state = p.getLinkState(robot_id, upper_link_idx)
+                                    upper_orn = upper_state[1]
+                                    upper_euler = p.getEulerFromQuaternion(upper_orn)
+                                    upper_pitch = math.degrees(upper_euler[1])
+                                except:
+                                    pass
+                            
+                            if lower_link_idx >= 0:
+                                try:
+                                    lower_state = p.getLinkState(robot_id, lower_link_idx)
+                                    lower_orn = lower_state[1]
+                                    lower_euler = p.getEulerFromQuaternion(lower_orn)
+                                    lower_pitch = math.degrees(lower_euler[1])
+                                    
+                                    # 膝上リンクと膝下リンクの相対角度を計算（座標系の問題を回避）
+                                    # 膝上リンクのローカル座標系での膝下リンクの姿勢を計算
+                                    if upper_link_idx >= 0:
+                                        try:
+                                            upper_state = p.getLinkState(robot_id, upper_link_idx)
+                                            upper_orn = upper_state[1]
+                                            # 膝上リンクの姿勢を逆変換して、膝下リンクの相対姿勢を計算
+                                            # これは複雑なので、代わりに膝角度で判定
+                                            pass
+                                        except:
+                                            pass
+                                except:
+                                    pass
+                            
+                            # 接地状態を取得
+                            toe_link_name = f"toe{leg_idx}"
+                            toe_link_idx = link_name_to_index.get(toe_link_name, -1)
+                            contact_status = "不明"
+                            if toe_link_idx >= 0:
+                                try:
+                                    contact_points = p.getContactPoints(robot_id, plane_id, linkIndexA=toe_link_idx)
+                                    contact_count = len(contact_points)
+                                    contact_force = contact_count * 10.0
+                                    contact_status = f"接地({contact_count}点, {contact_force:.1f}N)" if contact_count > 0 else "浮上"
+                                except:
+                                    pass
+                            
+                            # 逆関節の判定
+                            # GUIで見ると「くの字」になっているので、座標系の問題を考慮
+                            # 膝関節角度が大きい（90度以上）場合、逆関節と判定
+                            knee_angle = joint_angles[2]
+                            is_reverse_knee = False
+                            knee_shape_description = ""
+                            
+                            if knee_angle > 90:
+                                # 膝角度が90度以上なら逆関節（くの字）
+                                is_reverse_knee = True
+                                knee_shape_description = "逆関節（くの字）"
+                            elif knee_angle > 45:
+                                knee_shape_description = "中間形状"
+                            else:
+                                knee_shape_description = "通常形状"
+                            
+                            # 膝上・膝下の相対角度を計算（座標系の問題を回避）
+                            # 膝上リンクが後ろ向き（負のpitch）で、膝角度が大きい場合、逆関節
+                            if upper_pitch is not None and upper_pitch < 0 and knee_angle > 90:
+                                is_reverse_knee = True
+                            
+                            print(f"     {leg_name}:")
+                            print(f"       ジョイント角度: abduction={joint_angles[0]:.1f}°, hip={joint_angles[1]:.1f}°, knee={joint_angles[2]:.1f}°")
+                            if upper_pitch is not None:
+                                print(f"       膝上リンク({upper_link_name}): pitch={upper_pitch:.1f}° (ワールド座標系)")
+                            if lower_pitch is not None:
+                                print(f"       膝下リンク({lower_link_name}): pitch={lower_pitch:.1f}° (ワールド座標系、座標系の向きにより前後が逆の可能性あり)")
+                            print(f"       接地状態: {contact_status}")
+                            if is_reverse_knee:
+                                print(f"       → ✅ {knee_shape_description}（膝角度={knee_angle:.1f}°、GUIで確認すると「くの字」）")
+                            else:
+                                print(f"       → ⚠️ {knee_shape_description}（膝角度={knee_angle:.1f}°）")
+                
+                # 前回の指標を更新
+                prev_stability_metrics = current_stability_metrics
+                
+                # 前回の値を更新（安定化検知用、10ステップごとに更新）
+                prev_roll = current_roll
+                prev_pitch = current_pitch
+                prev_base_pos = list(current_pos)
+                if prev_knee_angles is None:
+                    prev_knee_angles = {}
+                for leg_name in leg_joints.keys():
+                    prev_knee_angles[leg_name] = current_knee_angles[leg_name]
+        
+        # 立ち上がり完了後も、前回の値を継続的に更新（安定化検知用）
+        if standing_up_completed_step is not None:
+            # 毎ステップ更新（安定化検知の精度を上げるため）
+            if prev_roll is None:
+                prev_roll = current_roll
+            if prev_pitch is None:
+                prev_pitch = current_pitch
+            if prev_base_pos is None:
+                prev_base_pos = list(current_pos)
+            if prev_knee_angles is None:
+                prev_knee_angles = {}
+                for leg_name, joint_indices in leg_joints.items():
+                    knee_joint = joint_indices[2]
+                    knee_state = p.getJointState(robot_id, knee_joint)
+                    prev_knee_angles[leg_name] = math.degrees(knee_state[0])
         
         p.stepSimulation()
         time.sleep(time_step)
