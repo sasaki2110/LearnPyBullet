@@ -23,15 +23,66 @@ def main():
     plane_id = p.loadURDF("plane.urdf")
     print("✅ 地面をロードしました")
     
+    # 地面の物理パラメータを調整（反発を減らす）
+    p.changeDynamics(
+        plane_id,
+        -1,  # ベースリンク
+        restitution=0.1,  # 反発係数（低反発、跳ねにくい）
+        lateralFriction=1.0,  # 横摩擦（滑りにくくする）
+        spinningFriction=0.5,  # 回転摩擦
+        rollingFriction=0.5  # 転がり摩擦
+    )
+    print("✅ 地面の物理パラメータを調整しました（反発係数低減）")
+    
     # Vision60をロード（脚を閉じた状態で登場させる）
     initial_pos = [0, 0, 0.1]  # 地面から10cm上
     robot_id = p.loadURDF("quadruped/vision60.urdf", basePosition=initial_pos)
     print("✅ Vision60をロードしました")
     
+    # 物理パラメータを調整して跳ねるのを抑制（実機に近づける）
+    # 1. ベースリンクの質量を増やす（実機は約20-30kg程度）
+    # 2. 線形・角減衰を追加して跳ねるのを抑制
+    # 3. 反発係数を下げる（地面との反発を減らす）
+    # 4. 摩擦を増やす（滑りにくくする）
+    num_links = p.getNumJoints(robot_id)
+    for link_idx in range(-1, num_links):  # -1はベースリンク
+        try:
+            # ベースリンクの質量を増やす（実機に近づける）
+            if link_idx == -1:
+                # ベースリンクの質量を増やす（デフォルトより重く）
+                # ただし、重すぎると立ち上がれなくなるので、適度な値に調整
+                p.changeDynamics(
+                    robot_id,
+                    link_idx,
+                    mass=15.0,  # 約15kg（25kg→15kgに調整、重すぎると立ち上がれない）
+                    linearDamping=0.5,  # 線形減衰（跳ねるのを抑制）
+                    angularDamping=0.5,  # 角減衰（回転の跳ねを抑制）
+                    restitution=0.1,  # 反発係数（0.1=低反発、跳ねにくい）
+                    lateralFriction=1.0,  # 横摩擦（滑りにくくする）
+                    spinningFriction=0.5,  # 回転摩擦
+                    rollingFriction=0.5  # 転がり摩擦
+                )
+            else:
+                # 各リンクにも減衰と反発係数を設定
+                p.changeDynamics(
+                    robot_id,
+                    link_idx,
+                    linearDamping=0.3,  # 線形減衰
+                    angularDamping=0.3,  # 角減衰
+                    restitution=0.1,  # 反発係数（低反発）
+                    lateralFriction=1.0,  # 横摩擦
+                    spinningFriction=0.5,  # 回転摩擦
+                    rollingFriction=0.5  # 転がり摩擦
+                )
+        except Exception as e:
+            print(f"  警告: リンク {link_idx} の物理パラメータ設定に失敗: {e}")
+    
+    print("✅ 物理パラメータを調整しました（質量増加、減衰追加、反発係数低減）")
+    
     # カメラを初期設定（GUIが開いた時点からクローズアップ）
     p.resetDebugVisualizerCamera(
         cameraDistance=2.0,
-        cameraYaw=45,
+        cameraYaw=90,
         cameraPitch=-30,
         cameraTargetPosition=initial_pos
     )
@@ -47,6 +98,17 @@ def main():
         joint_name = joint_info[1].decode('utf-8')
         joint_type = joint_info[2]
         print(f"  ジョイント {i}: {joint_name} (タイプ: {joint_type})")
+        
+        # ジョイントのダンピングを設定（動きを安定化）
+        if joint_type == p.JOINT_REVOLUTE:  # 回転ジョイントの場合
+            try:
+                p.changeDynamics(
+                    robot_id,
+                    i,
+                    jointDamping=0.5  # ジョイントダンピング（動きを安定化）
+                )
+            except:
+                pass
     
     # Vision60の脚のジョイント構造
     # 脚0: ジョイント0(abduction), 1(hip), 2(knee) - front_left
@@ -110,7 +172,7 @@ def main():
     
     # PD制御パラメータ
     position_gain = 0.2  # 位置ゲイン（Kp）
-    velocity_gain = 1.0  # 速度ゲイン（Kd）
+    velocity_gain = 2.0  # 速度ゲイン（Kd、1.0→2.0に増加して動きを安定化）
     
     # 姿勢フィードバック制御のゲイン（過剰反応を防ぐため小さめに設定）
     roll_feedback_gain = 0.01  # roll誤差に対するabduction調整ゲイン（0.05 → 0.01に削減）
@@ -118,6 +180,13 @@ def main():
     
     # 位置フィードバック制御のゲイン（立ち上がり中の位置移動を抑制）
     position_feedback_gain = 0.001  # 位置誤差に対するabduction調整ゲイン（左右バランス）
+    
+    # 接地状態フィードバック制御のゲイン（浮上している脚を下げる）
+    contact_feedback_gain = 0.05  # 接地状態に基づくknee調整ゲイン（0.02→0.05に増加）
+    contact_hip_feedback_gain = 0.02  # 接地状態に基づくhip調整ゲイン（0.01→0.02に増加）
+    
+    # 右前への傾き修正用のゲイン（knee角度を直接調整）
+    tilt_correction_knee_gain = 0.1  # 傾き修正用のknee調整ゲイン（0.03→0.1に増加）
     
     reset_count = 0
     reset_reasons_count = {'位置移動': 0, '高さ低下': 0, '姿勢傾き': 0}
@@ -460,6 +529,33 @@ def main():
         roll_error = current_roll  # 目標roll=0度
         pitch_error = current_pitch  # 目標pitch=0度
         
+        # 立ち上がり中かどうかを判定（複数箇所で使用するため先に定義）
+        is_standing_up_phase = (stability_confirmed and standing_up_start_step is not None and 
+                               i - standing_up_start_step >= 0 and 
+                               i - standing_up_start_step < standing_up_duration)
+        
+        # 接地状態を取得（立ち上がり中のみ、毎ステップ確認して即座に修正）
+        contact_info = {}
+        if is_standing_up_phase:  # 毎ステップ接地状態を確認（即座に修正するため）
+            leg_index_map = {'front_left': 0, 'front_right': 1, 'back_left': 2, 'back_right': 3}
+            for leg_name, leg_idx in leg_index_map.items():
+                toe_link_name = f"toe{leg_idx}"
+                toe_link_idx = link_name_to_index.get(toe_link_name, -1)
+                if toe_link_idx >= 0:
+                    try:
+                        contact_points = p.getContactPoints(robot_id, plane_id, linkIndexA=toe_link_idx)
+                        is_contact = len(contact_points) > 0
+                        total_force = len(contact_points) * 10.0  # 接触点の数×10N（簡易的な推定）
+                        contact_info[leg_name] = {
+                            'is_contact': is_contact,
+                            'force': total_force,
+                            'contact_count': len(contact_points)
+                        }
+                    except:
+                        contact_info[leg_name] = {'is_contact': False, 'force': 0.0, 'contact_count': 0}
+                else:
+                    contact_info[leg_name] = {'is_contact': False, 'force': 0.0, 'contact_count': 0}
+        
         # 各ジョイントを目標角度に制御（PD制御と姿勢フィードバック制御）
         for leg_name, joint_indices in leg_joints.items():
             base_angles = standing_angles.get(leg_name, [0.0, 0.0, 1.5])
@@ -468,11 +564,7 @@ def main():
             # 姿勢フィードバックによる角度調整
             abduction_idx = 0
             hip_idx = 1
-            
-            # 立ち上がり中かどうかを判定（複数箇所で使用するため先に定義）
-            is_standing_up_phase = (stability_confirmed and standing_up_start_step is not None and 
-                                   i - standing_up_start_step >= 0 and 
-                                   i - standing_up_start_step < standing_up_duration)
+            knee_idx = 2
             
             # roll誤差に基づいてabductionを調整（左右バランス）
             # 立ち上がり中はrollフィードバックゲインを増やして左右バランスを強化
@@ -507,17 +599,101 @@ def main():
                 # pitchが正（前のめり）の場合、後脚のhipを前向きに
                 adjusted_angles[hip_idx] += pitch_error * pitch_feedback_gain * pitch_gain_multiplier
             
+            # 右前への傾きを修正するためのknee角度調整（立ち上がり中のみ）
+            if is_standing_up_phase:
+                # X方向に右へ移動している場合、右側の脚のkneeを伸ばす、左側の脚のkneeを曲げる
+                if abs(x_position_error) > 0.03:  # 3cm以上移動した場合（5cm→3cmに緩和）
+                    if leg_name in ['front_right', 'back_right']:  # 右側の脚
+                        # Xが正（右へ移動）の場合、右側の脚のkneeを伸ばす（角度を増やす）
+                        adjusted_angles[knee_idx] += abs(x_position_error) * tilt_correction_knee_gain * 2.0  # 2倍に増加
+                    else:  # 左側の脚
+                        # Xが正（右へ移動）の場合、左側の脚のkneeを曲げる（角度を減らす）
+                        adjusted_angles[knee_idx] -= abs(x_position_error) * tilt_correction_knee_gain * 1.0  # 0.5→1.0に増加
+                
+                # rollが右に傾いている場合、右側の脚のkneeを伸ばす、左側の脚のkneeを曲げる
+                if roll_error > 3.0:  # 3度以上右に傾いている場合（5度→3度に緩和）
+                    if leg_name in ['front_right', 'back_right']:  # 右側の脚
+                        # rollが正（右に傾く）場合、右側の脚のkneeを伸ばす
+                        adjusted_angles[knee_idx] += roll_error * tilt_correction_knee_gain * 0.02  # 0.01→0.02に増加
+                    else:  # 左側の脚
+                        # rollが正（右に傾く）場合、左側の脚のkneeを曲げる
+                        adjusted_angles[knee_idx] -= roll_error * tilt_correction_knee_gain * 0.02  # 0.01→0.02に増加
+                
+                # pitchが前のめりの場合、前脚のkneeを伸ばす、後脚のkneeを曲げる
+                if pitch_error > 2.0:  # 2度以上前のめりの場合（3度→2度に緩和）
+                    if leg_name in ['front_left', 'front_right']:  # 前脚
+                        # pitchが正（前のめり）の場合、前脚のkneeを伸ばす
+                        adjusted_angles[knee_idx] += pitch_error * tilt_correction_knee_gain * 0.02  # 0.01→0.02に増加
+                    else:  # 後脚
+                        # pitchが正（前のめり）の場合、後脚のkneeを曲げる
+                        adjusted_angles[knee_idx] -= pitch_error * tilt_correction_knee_gain * 0.02  # 0.01→0.02に増加
+            
+            # 接地状態に基づく修正（立ち上がり中のみ）
+            if is_standing_up_phase and len(contact_info) > 0:
+                leg_contact = contact_info.get(leg_name, {'is_contact': True, 'force': 40.0, 'contact_count': 4})
+                
+                # 浮上している脚または弱い接地の脚を下げる
+                if not leg_contact['is_contact'] or leg_contact['force'] < 20.0:  # 浮上または弱い接地
+                    # 浮上している脚を下げるために、hipを前向きに（後脚の場合）または後ろ向きに（前脚の場合）
+                    # またはkneeを曲げる
+                    if leg_name in ['back_left', 'back_right']:  # 後脚
+                        # 後脚が浮上している場合、hipを前向きに（負の値に）して脚を前に出す
+                        force_ratio = max(1.0, (40.0 - leg_contact['force']) / 10.0)
+                        adjusted_angles[hip_idx] -= contact_hip_feedback_gain * force_ratio * 3.0  # より積極的に修正（3倍）
+                    else:  # 前脚
+                        # 前脚が浮上している場合、hipを後ろ向きに（正の値に）して脚を後ろに引く
+                        force_ratio = max(1.0, (40.0 - leg_contact['force']) / 10.0)
+                        adjusted_angles[hip_idx] += contact_hip_feedback_gain * force_ratio * 3.0  # より積極的に修正（3倍）
+                    
+                    # kneeを曲げて脚を下げる
+                    force_ratio = max(1.0, (40.0 - leg_contact['force']) / 10.0)
+                    adjusted_angles[knee_idx] -= contact_feedback_gain * force_ratio * 3.0  # より積極的に修正（3倍）
+                
+                # 特に右後ろ足（BR）が浮上している場合の特別な修正
+                if leg_name == 'back_right' and (not leg_contact['is_contact'] or leg_contact['force'] < 10.0):
+                    # BRが浮上している場合、hipを前向きに（負の値に）して脚を前に出す
+                    adjusted_angles[hip_idx] -= contact_hip_feedback_gain * 5.0  # より積極的に修正（5倍）
+                    # kneeを曲げて脚を下げる
+                    adjusted_angles[knee_idx] -= contact_feedback_gain * 5.0  # より積極的に修正（5倍）
+            
+            # 後脚（特にBL）の膝角度が目標に到達しない問題を修正
+            if is_standing_up_phase:
+                # 現在の膝角度を取得
+                try:
+                    knee_joint = joint_indices[knee_idx]
+                    knee_state = p.getJointState(robot_id, knee_joint)
+                    current_knee_angle = knee_state[0]
+                    
+                    # 目標膝角度を取得
+                    target_knee_angle = base_angles[knee_idx]
+                    
+                    # 後脚（BL, BR）の膝角度が目標に到達していない場合、より積極的に修正
+                    if leg_name in ['back_left', 'back_right']:
+                        knee_error = target_knee_angle - current_knee_angle
+                        if knee_error > 0.3:  # 目標より0.3ラジアン（約17度）以上小さい場合
+                            # 膝角度を増やす（脚を伸ばす）ために、目標角度に近づける
+                            # ただし、接地状態を考慮して、浮上している場合は曲げる
+                            leg_contact = contact_info.get(leg_name, {'is_contact': True, 'force': 40.0, 'contact_count': 4})
+                            if leg_contact['is_contact'] and leg_contact['force'] >= 20.0:  # 接地している場合のみ
+                                # 接地している場合は、膝角度を増やす（脚を伸ばす）
+                                adjusted_angles[knee_idx] += knee_error * 0.1  # 目標に近づける
+                            else:
+                                # 浮上している場合は、まず接地させるためにkneeを曲げる
+                                adjusted_angles[knee_idx] -= contact_feedback_gain * 2.0
+                except:
+                    pass
+            
             # ジョイント制御（PD制御パラメータ付き）
             # 立ち上がり開始後は、ずっと弱い力とゲインを維持
             is_standing_up_or_after = (stability_confirmed and standing_up_start_step is not None and 
                                       i - standing_up_start_step >= 0)
             
             if is_standing_up_or_after:
-                # 立ち上がり開始後：弱い力とゲインを維持（安定性を優先）
-                # 力とゲインを増やして目標角度に到達できるようにする
-                current_force = 20.0  # 通常の10%（10.0→20.0に増加：目標角度に到達するため）
-                current_position_gain = position_gain * 0.2  # 通常の20%（0.1→0.2に増加：目標角度に到達するため）
-                current_velocity_gain = velocity_gain * 0.2  # 通常の20%（0.1→0.2に増加：目標角度に到達するため）
+                # 立ち上がり開始後：質量が25kgに増加したため、力とゲインを大幅に増加
+                # 質量が約2.5倍になったので、力も2.5倍程度（50.0）に増やす
+                current_force = 50.0  # 20.0→50.0に増加（質量25kgに対応）
+                current_position_gain = position_gain * 0.5  # 0.2→0.5に増加（質量25kgに対応）
+                current_velocity_gain = velocity_gain * 0.5  # 0.2→0.5に増加（質量25kgに対応）
             else:
                 # 立ち上がり前：通常の力とゲイン
                 current_force = 200.0
