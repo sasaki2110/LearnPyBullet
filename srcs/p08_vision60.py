@@ -82,7 +82,7 @@ def main():
     # カメラを初期設定（GUIが開いた時点からクローズアップ）
     p.resetDebugVisualizerCamera(
         cameraDistance=2.0,
-        cameraYaw=90,
+        cameraYaw=45,
         cameraPitch=-30,
         cameraTargetPosition=initial_pos
     )
@@ -246,12 +246,15 @@ def main():
                 
                 # 立ち上がる角度を設定（従来方式：角度を直接指定）
                 # 実機に合わせて膝を大きく開く - 1.7ラジアン（約97度）
-                # 前のめりを防ぐため、前脚を後ろ向きに、後脚を前向きに調整（後傾姿勢）
+                # 対角線の脚が同じ動きをするため、対角線で同じ角度を設定
+                # FLとBRが同じ動き（良い動き：肩や股関節から角度がついて、逆くの字になる）
+                # FRとBLが同じ動き（悪い動き：肩や股関節が曲がりすぎて、膝上が水平になる）
+                # 立ち上がりでは全てFLとBRの動きに合わせる（全ての脚をFLと同じ角度にする）
                 standing_up_angles = {
                     'front_left': [0.0, 0.5, 1.7],      # abduction, hip(後ろ向き、大きく), knee(大きく開く、約97度)
-                    'front_right': [0.0, 0.5, 1.7],
-                    'back_left': [0.0, -0.2, 1.7],      # 後脚はhipを前向きに（負の値）で後傾姿勢を実現
-                    'back_right': [0.0, -0.2, 1.7]
+                    'front_right': [0.0, 0.5, 1.7],     # FRもFLと同じ角度に（全てFLとBRの動きに合わせる）
+                    'back_left': [0.0, 0.5, 1.7],      # BLもFLと同じ角度に（全てFLとBRの動きに合わせる）
+                    'back_right': [0.0, 0.5, 1.7]       # BRもFLと同じ角度に（全てFLとBRの動きに合わせる）
                 }
                 print(f"  🦵 立ち上がります（膝を大きく開き、hipを調整 - {standing_up_duration}ステップかけてゆっくりと）...")
         
@@ -588,6 +591,21 @@ def main():
                     # Xが正（右へ移動）の場合、右側の脚を内側に閉じる
                     adjusted_angles[abduction_idx] -= x_position_error * position_feedback_gain
             
+            # 右脚のabduction角度を左脚の逆にする（立ち上がり中のみ）
+            # 左右でモーターの回転方向が逆のため、右脚は左脚の符号を反転させる
+            if is_standing_up_phase and leg_name in ['front_right', 'back_right']:
+                # 対応する左脚のabduction角度を取得して、その符号を反転させる
+                corresponding_left_leg = 'front_left' if leg_name == 'front_right' else 'back_left'
+                try:
+                    left_abduction_joint = leg_joints[corresponding_left_leg][abduction_idx]
+                    left_abduction_state = p.getJointState(robot_id, left_abduction_joint)
+                    left_abduction_angle = left_abduction_state[0]
+                    
+                    # 左脚のabduction角度の符号を反転させる（右脚のabduction角度を左脚の逆にする）
+                    adjusted_angles[abduction_idx] = -left_abduction_angle
+                except:
+                    pass  # 左脚の角度が取得できない場合は、そのまま
+            
             # pitch誤差に基づいてhipを調整（前後バランス）
             # 立ち上がり中は姿勢フィードバックゲインを増やして前のめりを抑制
             pitch_gain_multiplier = 2.0 if is_standing_up_phase else 1.0  # 立ち上がり中は2倍に
@@ -598,6 +616,21 @@ def main():
             else:  # 後脚
                 # pitchが正（前のめり）の場合、後脚のhipを前向きに
                 adjusted_angles[hip_idx] += pitch_error * pitch_feedback_gain * pitch_gain_multiplier
+            
+            # 右脚のhip角度を左脚の逆にする（立ち上がり中のみ）
+            # 左右でモーターの回転方向が逆のため、右脚は左脚の符号を反転させる
+            if is_standing_up_phase and leg_name in ['front_right', 'back_right']:
+                # 対応する左脚のhip角度を取得して、その符号を反転させる
+                corresponding_left_leg = 'front_left' if leg_name == 'front_right' else 'back_left'
+                try:
+                    left_hip_joint = leg_joints[corresponding_left_leg][hip_idx]
+                    left_hip_state = p.getJointState(robot_id, left_hip_joint)
+                    left_hip_angle = left_hip_state[0]
+                    
+                    # 左脚のhip角度の符号を反転させる（右脚のhip角度を左脚の逆にする）
+                    adjusted_angles[hip_idx] = -left_hip_angle
+                except:
+                    pass  # 左脚の角度が取得できない場合は、そのまま
             
             # 右前への傾きを修正するためのknee角度調整（立ち上がり中のみ）
             if is_standing_up_phase:
@@ -656,7 +689,7 @@ def main():
                     # kneeを曲げて脚を下げる
                     adjusted_angles[knee_idx] -= contact_feedback_gain * 5.0  # より積極的に修正（5倍）
             
-            # 後脚（特にBL）の膝角度が目標に到達しない問題を修正
+            # 右脚の膝角度が目標に到達しない問題を修正（左脚に合わせる）
             if is_standing_up_phase:
                 # 現在の膝角度を取得
                 try:
@@ -666,6 +699,34 @@ def main():
                     
                     # 目標膝角度を取得
                     target_knee_angle = base_angles[knee_idx]
+                    
+                    # 右脚（FR, BR）の膝角度が目標に到達していない場合、左脚に合わせる
+                    if leg_name in ['front_right', 'back_right']:
+                        knee_error = target_knee_angle - current_knee_angle
+                        if knee_error > 0.3:  # 目標より0.3ラジアン（約17度）以上小さい場合
+                            # 対応する左脚の膝角度を取得して、それに合わせる
+                            corresponding_left_leg = 'front_left' if leg_name == 'front_right' else 'back_left'
+                            try:
+                                left_knee_joint = leg_joints[corresponding_left_leg][knee_idx]
+                                left_knee_state = p.getJointState(robot_id, left_knee_joint)
+                                left_knee_angle = left_knee_state[0]
+                                
+                                # 左脚の膝角度に合わせる（右脚のknee角度を左脚と同じにする）
+                                # ただし、接地状態を考慮して、浮上している場合は曲げる
+                                leg_contact = contact_info.get(leg_name, {'is_contact': True, 'force': 40.0, 'contact_count': 4})
+                                if leg_contact['is_contact'] and leg_contact['force'] >= 20.0:  # 接地している場合のみ
+                                    # 接地している場合は、左脚の膝角度に合わせる
+                                    adjusted_angles[knee_idx] = left_knee_angle
+                                else:
+                                    # 浮上している場合は、まず接地させるためにkneeを曲げる
+                                    adjusted_angles[knee_idx] -= contact_feedback_gain * 2.0
+                            except:
+                                # 左脚の角度が取得できない場合は、目標角度に近づける
+                                leg_contact = contact_info.get(leg_name, {'is_contact': True, 'force': 40.0, 'contact_count': 4})
+                                if leg_contact['is_contact'] and leg_contact['force'] >= 20.0:  # 接地している場合のみ
+                                    adjusted_angles[knee_idx] += knee_error * 0.1  # 目標に近づける
+                                else:
+                                    adjusted_angles[knee_idx] -= contact_feedback_gain * 2.0
                     
                     # 後脚（BL, BR）の膝角度が目標に到達していない場合、より積極的に修正
                     if leg_name in ['back_left', 'back_right']:
