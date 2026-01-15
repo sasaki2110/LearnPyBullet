@@ -199,12 +199,6 @@ def main():
     standing_up_start_step = None  # 立ち上がり開始ステップ
     standing_up_duration = 2000  # 立ち上がりにかけるステップ数（極めてゆっくりと、1000→2000に延長）
     
-    # 逆運動学を使った立ち上がり制御用の変数（現在は無効）
-    use_ik_for_standing_up = False  # 逆運動学を使用するかどうか（Vision60では動作不良のため無効）
-    end_effector_indices_ik = {}  # 各脚のエンドエフェクタ（足先）のリンクインデックス
-    initial_toe_positions_ik = {}  # 立ち上がり開始時の足先位置
-    target_toe_positions_ik = {}  # 目標の足先位置
-    
     # リンク名マッピング（立ち上がりログ出力用）
     link_name_to_index = {}
     num_links = p.getNumJoints(robot_id)
@@ -273,86 +267,7 @@ def main():
                 print(f"  🦵 立ち上がります（膝を大きく開き、hipを調整 - {standing_up_duration}ステップかけてゆっくりと）...")
         
         # 立ち上がり処理（安定確認後、段階的に角度を変更）
-        # 逆運動学を使った制御の場合
-        if stability_confirmed and use_ik_for_standing_up and len(end_effector_indices_ik) > 0 and len(target_toe_positions_ik) > 0 and standing_up_start_step is not None:
-            # 進行度を計算（0.0～1.0）
-            elapsed_steps = i - standing_up_start_step
-            progress = min(1.0, elapsed_steps / standing_up_duration)
-            
-            # 各脚の目標足先位置を線形補間（初期位置から目標位置へ）
-            current_target_toe_positions = {}
-            for leg_name in end_effector_indices_ik.keys():
-                if initial_toe_positions_ik.get(leg_name) is not None and target_toe_positions_ik.get(leg_name) is not None:
-                    current_target_toe_positions[leg_name] = [
-                        initial_toe_positions_ik[leg_name][0] + (target_toe_positions_ik[leg_name][0] - initial_toe_positions_ik[leg_name][0]) * progress,
-                        initial_toe_positions_ik[leg_name][1] + (target_toe_positions_ik[leg_name][1] - initial_toe_positions_ik[leg_name][1]) * progress,
-                        initial_toe_positions_ik[leg_name][2] + (target_toe_positions_ik[leg_name][2] - initial_toe_positions_ik[leg_name][2]) * progress
-                    ]
-                else:
-                    current_target_toe_positions[leg_name] = None
-            
-            # 各脚に対して逆運動学を計算
-            ik_angles = {}
-            for leg_name, joint_indices in leg_joints.items():
-                if end_effector_indices_ik.get(leg_name) is not None and current_target_toe_positions.get(leg_name) is not None:
-                    try:
-                        # 逆運動学を計算
-                        # 各脚のジョイントインデックスを取得（abduction, hip, knee）
-                        joint_indices_for_ik = joint_indices  # [abduction, hip, knee]
-                        
-                        # 現在のジョイント角度を取得（初期値として使用）
-                        current_joint_angles = []
-                        for joint_idx in joint_indices_for_ik:
-                            joint_state = p.getJointState(robot_id, joint_idx)
-                            current_joint_angles.append(joint_state[0])
-                        
-                        # 逆運動学を計算
-                        # calculateInverseKinematicsは全ジョイントの角度を返すので、
-                        # 各脚のジョイントインデックスに対応する角度を取得する
-                        ik_result = p.calculateInverseKinematics(
-                            robot_id,
-                            end_effector_indices_ik[leg_name],
-                            current_target_toe_positions[leg_name],
-                            maxNumIterations=100
-                        )
-                        
-                        # 結果から該当するジョイントの角度を取得
-                        # ik_resultは全ジョイントの角度のリストなので、各脚のジョイントインデックスに対応する角度を取得
-                        if len(ik_result) > max(joint_indices_for_ik):
-                            ik_angles[leg_name] = [
-                                ik_result[joint_indices_for_ik[0]],  # abduction
-                                ik_result[joint_indices_for_ik[1]],  # hip
-                                ik_result[joint_indices_for_ik[2]]   # knee
-                            ]
-                        else:
-                            # 逆運動学が失敗した場合、現在の角度を維持
-                            ik_angles[leg_name] = current_joint_angles
-                    except Exception as e:
-                        # 逆運動学が失敗した場合、現在の角度を維持
-                        try:
-                            current_joint_angles = []
-                            for joint_idx in joint_indices:
-                                joint_state = p.getJointState(robot_id, joint_idx)
-                                current_joint_angles.append(joint_state[0])
-                            ik_angles[leg_name] = current_joint_angles
-                        except:
-                            ik_angles[leg_name] = [0.0, 0.0, 0.5]
-                else:
-                    # エンドエフェクタが見つからない場合、現在の角度を維持
-                    try:
-                        current_joint_angles = []
-                        for joint_idx in joint_indices:
-                            joint_state = p.getJointState(robot_id, joint_idx)
-                            current_joint_angles.append(joint_state[0])
-                        ik_angles[leg_name] = current_joint_angles
-                    except:
-                        ik_angles[leg_name] = [0.0, 0.0, 0.5]
-            
-            # standing_anglesを逆運動学の結果で更新
-            standing_angles = ik_angles
-        
-        # 従来の角度指定方式（逆運動学を使わない場合）
-        elif stability_confirmed and not use_ik_for_standing_up and standing_up_angles is not None and initial_standing_angles is not None and standing_up_start_step is not None:
+        if stability_confirmed and standing_up_angles is not None and initial_standing_angles is not None and standing_up_start_step is not None:
             # 進行度を計算（0.0～1.0）
             elapsed_steps = i - standing_up_start_step
             progress = min(1.0, elapsed_steps / standing_up_duration)
@@ -371,11 +286,8 @@ def main():
                     knee_state = p.getJointState(robot_id, knee_joint)
                     current_knee_angles[leg_name] = math.degrees(knee_state[0])
                 
-                # 目標knee角度（逆運動学を使う場合は目標足先位置から計算、使わない場合はstanding_up_anglesから取得）
-                if use_ik_for_standing_up and len(target_toe_positions_ik) > 0:
-                    # 逆運動学を使う場合、目標knee角度は計算できないので、現在の最大knee角度を目標として表示
-                    target_knee_deg = max(current_knee_angles.values()) if current_knee_angles else 97.4
-                elif standing_up_angles is not None:
+                # 目標knee角度
+                if standing_up_angles is not None:
                     target_knee_deg = math.degrees(standing_up_angles['front_left'][2])
                 else:
                     target_knee_deg = 97.4  # デフォルト値
