@@ -57,12 +57,15 @@ class JointController:
             is_standing_up: 立ち上がり中かどうか
         """
         # 力とゲインの決定
+        # 物理的に現実的な力に制限（15kgのロボットに対して適切な値）
         if is_standing_up:
             current_force = config.STANDING_UP_FORCE
             current_position_gain = config.POSITION_GAIN * config.STANDING_UP_POSITION_GAIN_MULTIPLIER
             current_velocity_gain = config.VELOCITY_GAIN * config.STANDING_UP_VELOCITY_GAIN_MULTIPLIER
         else:
-            current_force = 200.0  # 通常の力
+            # 通常の力: 15kgのロボットに対して、各ジョイントで20-30N程度が適切
+            # 200Nは大きすぎて、物理法則を無視した動きを強制してしまう
+            current_force = 30.0  # 物理的に現実的な力に制限
             current_position_gain = config.POSITION_GAIN
             current_velocity_gain = config.VELOCITY_GAIN
         

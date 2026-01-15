@@ -41,6 +41,9 @@ class PyBulletEnvironment:
         # PyBulletデータパスを追加
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         
+        # タイムステップを設定（物理シミュレーションの精度を向上）
+        p.setTimeStep(config.TIME_STEP)
+        
         # 重力を設定
         p.setGravity(*config.GRAVITY)
         

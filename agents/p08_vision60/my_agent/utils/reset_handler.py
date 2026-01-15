@@ -89,10 +89,33 @@ class ResetHandler:
     
     def _reset_pose(self, target_pos, target_orn):
         """姿勢をリセット"""
-        # 初期位置と姿勢に戻す
+        # 初期位置（X, Y座標）に戻し、高さ（Z座標）は現在の高さを維持
         if self.state.initial_pos_after_setup:
+            # X, Y座標を初期位置に戻し、Z座標（高さ）は現在の高さを維持
+            reset_pos = (
+                self.state.initial_pos_after_setup[0],  # X: 初期位置
+                self.state.initial_pos_after_setup[1],  # Y: 初期位置
+                target_pos[2]  # Z: 現在の高さを維持
+            )
+            # 位置と姿勢をリセット
             p.resetBasePositionAndOrientation(
                 self.state.robot_id,
-                self.state.initial_pos_after_setup,
+                reset_pos,
                 target_orn
             )
+            # 速度と角速度をゼロにリセット（物理法則を無視した動きを防ぐため）
+            p.resetBaseVelocity(
+                self.state.robot_id,
+                linearVelocity=[0, 0, 0],
+                angularVelocity=[0, 0, 0]
+            )
+            # すべてのジョイントの速度もリセット（角度は現在の値を維持）
+            num_joints = p.getNumJoints(self.state.robot_id)
+            for i in range(num_joints):
+                joint_info = p.getJointInfo(self.state.robot_id, i)
+                if joint_info[2] == p.JOINT_REVOLUTE or joint_info[2] == p.JOINT_PRISMATIC:
+                    # 現在のジョイント角度を取得
+                    joint_state = p.getJointState(self.state.robot_id, i)
+                    current_angle = joint_state[0]
+                    # 角度は維持し、速度だけをゼロにリセット
+                    p.resetJointState(self.state.robot_id, i, targetValue=current_angle, targetVelocity=0)

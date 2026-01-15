@@ -30,8 +30,12 @@ class PostureController:
             is_standing_up: 立ち上がり中かどうか
             is_stepping: 足踏み中かどうか
         """
+        # 足踏み中は姿勢フィードバック制御を無効化（足踏み動作と競合しないように）
+        if is_stepping:
+            return
+        
         # ゲインの倍率を決定
-        gain_multiplier = 2.0 if (is_standing_up or is_stepping) else 1.0
+        gain_multiplier = 2.0 if is_standing_up else 1.0
         
         # 現在の姿勢を取得
         roll = self.state.get_current_roll_deg()

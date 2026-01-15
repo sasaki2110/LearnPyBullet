@@ -15,3 +15,6 @@ __pycache__/
 
 # 動画
 *.mp4
+
+# serena
+.serena/

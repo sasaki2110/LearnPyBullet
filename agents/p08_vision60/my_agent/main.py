@@ -96,13 +96,20 @@ def main():
         time.sleep(config.TIME_STEP)
     
     # 最終状態をログ出力
-    log_writer.log_reset_stats(state.reset_count, state.reset_reasons_count, config.TOTAL_SIMULATION_STEPS)
-    log_writer.log_final_state(env.robot_id, robot_model)
+    log_writer.log_reset_stats(state.reset_count, state.reset_reasons_count, config.TOTAL_SIMULATION_STEPS, logger)
+    log_writer.log_final_state(env.robot_id, robot_model, logger)
     
     # クリーンアップ
     logger.info("\n✅ ロボットの登場が完了しました。")
+    # 終了待機中であることを示すために色を変更（紫系）
+    robot_model.change_robot_color(config.ROBOT_COLOR_FINISHED)
     logger.info("   5秒間停止して終了します...")
-    time.sleep(5)
+    
+    # 5秒間、シミュレーションを停止して待機（GUIは表示し続ける）
+    for _ in range(500):  # 500回 × 0.01秒 = 5秒
+        time.sleep(0.01)
+        # シミュレーションは動かさない（p.stepSimulation()を呼ばない）
+    
     env.disconnect()
     logger.info("✅ [MAIN] Vision60エージェントの実行が完了しました")
 

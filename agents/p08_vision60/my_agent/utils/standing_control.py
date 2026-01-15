@@ -52,6 +52,8 @@ class StandingController:
                 
                 # 立ち上がる角度を設定
                 self.state.standing_up_angles = config.STANDING_UP_ANGLES.copy()
+                # 立ち上がり開始時に色を変更（オレンジ系）
+                self.robot_model.change_robot_color(config.ROBOT_COLOR_STANDING_UP)
                 logger.info(f"  🦵 立ち上がります（膝を大きく開き、hipを調整 - {config.STANDING_UP_DURATION}ステップかけてゆっくりと）...")
                 return True
         return False
@@ -76,6 +78,8 @@ class StandingController:
             # 立ち上がり完了を検知
             if self.state.standing_up_completed_step is None and progress >= 1.0:
                 self.state.standing_up_completed_step = step
+                # 立ち上がり完了時に通常色に戻す（足踏み開始時に緑色に変わる）
+                self.robot_model.change_robot_color(config.ROBOT_COLOR_NORMAL)
                 logger.info(f"  ✅ 立ち上がり完了 (ステップ{step}): 目標角度への到達完了")
             
             # 立ち上がり中の進行度をログ出力（100ステップごと）
@@ -182,6 +186,7 @@ class StandingController:
             step=step,
             progress=progress,
             current_roll=current_roll,
+            logger=logger,
             current_pitch=current_pitch,
             base_pos=current_pos,
             knee_angles=current_knee_angles,

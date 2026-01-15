@@ -6,10 +6,8 @@ Vision60エージェントのログ出力を統一管理
 from typing import Dict, Optional, List
 import math
 import pybullet as p
+import logging
 from .config import config
-from .logging_config import get_logger
-
-logger = get_logger('logger')
 
 
 class Logger:
@@ -32,6 +30,7 @@ class Logger:
         contact_states: Dict[str, tuple],
         toe_positions: Dict[str, Optional[tuple]],
         angle_errors: Dict[str, List[float]],
+        logger: logging.Logger,
         prev_roll: Optional[float] = None,
         prev_pitch: Optional[float] = None,
         prev_knee_angles: Optional[Dict[str, float]] = None,
@@ -164,7 +163,9 @@ class Logger:
         current_roll: float,
         current_pitch: float,
         base_pos: tuple,
-        knee_angles: Dict[str, float]
+        knee_angles: Dict[str, float],
+        logger: logging.Logger,
+        contact_states: Optional[Dict[str, tuple]] = None
     ):
         """
         足踏み動作の状態をログ出力
@@ -178,6 +179,7 @@ class Logger:
             current_pitch: 現在のpitch（度）
             base_pos: ベース位置
             knee_angles: 各脚の膝角度（度）
+            contact_states: 各脚の接地状態 {(leg_name): (contact_points, force)}
         """
         logger.info(f"  🦶 足踏み動作中 (ステップ{step}, フェーズ{phase}: {phase_names.get(phase, 'Unknown')}, {action_status}):")
         logger.info(f"     姿勢: roll={current_roll:.1f}°, pitch={current_pitch:.1f}°")
@@ -186,9 +188,18 @@ class Logger:
               f"FR={knee_angles.get('front_right', 0.0):.1f}°, "
               f"BL={knee_angles.get('back_left', 0.0):.1f}°, "
               f"BR={knee_angles.get('back_right', 0.0):.1f}°")
+        if contact_states:
+            fl_contact = contact_states.get('front_left', (0, 0.0))
+            fr_contact = contact_states.get('front_right', (0, 0.0))
+            bl_contact = contact_states.get('back_left', (0, 0.0))
+            br_contact = contact_states.get('back_right', (0, 0.0))
+            logger.info(f"     接地状態: FL={'接地' if fl_contact[0] > 0 else '浮上'}({fl_contact[0]}点, {fl_contact[1]:.1f}N), "
+                  f"FR={'接地' if fr_contact[0] > 0 else '浮上'}({fr_contact[0]}点, {fr_contact[1]:.1f}N), "
+                  f"BL={'接地' if bl_contact[0] > 0 else '浮上'}({bl_contact[0]}点, {bl_contact[1]:.1f}N), "
+                  f"BR={'接地' if br_contact[0] > 0 else '浮上'}({br_contact[0]}点, {br_contact[1]:.1f}N)")
     
     @classmethod
-    def log_reset_stats(cls, reset_count: int, reset_reasons_count: Dict[str, int], total_steps: int):
+    def log_reset_stats(cls, reset_count: int, reset_reasons_count: Dict[str, int], total_steps: int, logger: logging.Logger):
         """
         リセット統計をログ出力
         
@@ -196,6 +207,7 @@ class Logger:
             reset_count: 総リセット回数
             reset_reasons_count: 原因別リセット回数
             total_steps: 総ステップ数
+            logger: ロガーインスタンス
         """
         logger.info(f"\n📊 リセット統計:")
         logger.info(f"  総リセット回数: {reset_count}回 ({total_steps}ステップ中)")
@@ -205,13 +217,14 @@ class Logger:
                 logger.info(f"    - {reason}: {count}回")
     
     @classmethod
-    def log_final_state(cls, robot_id: int, robot_model):
+    def log_final_state(cls, robot_id: int, robot_model, logger: logging.Logger):
         """
         最終状態をログ出力
         
         Args:
             robot_id: ロボットID
             robot_model: ロボットモデル
+            logger: ロガーインスタンス
         """
         pos, orn = p.getBasePositionAndOrientation(robot_id)
         euler = p.getEulerFromQuaternion(orn)

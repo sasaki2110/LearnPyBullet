@@ -3,7 +3,7 @@ Vision60エージェントの設定・定数
 
 すべての設定値と定数を一元管理
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List
 
 
@@ -13,7 +13,7 @@ class Config:
     
     # PyBullet設定
     GUI_MODE: bool = True
-    TIME_STEP: float = 1.0 / 240.0
+    TIME_STEP: float = 1.0 / 480.0  # より細かいタイムステップで物理シミュレーションの精度を向上
     GRAVITY: tuple = (0, 0, -9.81)
     
     # ロボット初期位置
@@ -97,8 +97,14 @@ class Config:
     STABILITY_CHECK_INTERVAL: int = 10  # 安定性チェックの間隔（ステップ数）
     
     # 足踏み動作設定
-    STEPPING_PHASE_DURATION: int = 200  # 各フェーズの継続時間（ステップ数）
+    STEPPING_PHASE_DURATION: int = 600  # 各フェーズの継続時間（ステップ数）
     LEG_LIFT_HEIGHT: float = 0.05  # 足を上げる高さ（m、未使用）
+    
+    # ロボットの色設定（RGBA、各値は0.0～1.0）
+    ROBOT_COLOR_NORMAL: List[float] = field(default_factory=lambda: [0.3, 0.5, 0.8, 1.0])  # 通常時: 青系
+    ROBOT_COLOR_STEPPING: List[float] = field(default_factory=lambda: [0.2, 0.8, 0.3, 1.0])  # 足踏み中: 緑系
+    ROBOT_COLOR_STANDING_UP: List[float] = field(default_factory=lambda: [0.9, 0.6, 0.2, 1.0])  # 立ち上がり中: オレンジ系
+    ROBOT_COLOR_FINISHED: List[float] = field(default_factory=lambda: [0.8, 0.2, 0.8, 1.0])  # 終了待機中: 紫系
     
     # シミュレーション設定
     TOTAL_SIMULATION_STEPS: int = 3000  # 総シミュレーションステップ数
