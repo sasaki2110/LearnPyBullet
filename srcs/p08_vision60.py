@@ -229,6 +229,14 @@ def main():
     prev_stability_metrics = None  # 前回の安定性指標（姿勢変化率、位置変化率など）
     stability_check_window = 20  # 安定性チェックのウィンドウサイズ（ステップ数）
     
+    # 足踏み動作用の変数
+    stepping_started = False  # 足踏み動作を開始したかどうか
+    stepping_phase = 0  # 足踏みのフェーズ（0: FL+BR上げ, 1: FL+BR戻す, 2: FR+BL上げ, 3: FR+BL戻す）
+    stepping_phase_start_step = None  # 現在のフェーズ開始ステップ
+    stepping_phase_duration = 200  # 各フェーズの継続時間（ステップ数）
+    leg_lift_height = 0.05  # 足を上げる高さ（メートル）
+    base_standing_angles_for_stepping = None  # 足踏み開始時の基本姿勢角度（保存用）
+    
     total_simulation_steps = 3000  # 姿勢維持のステップ数（立ち上がり2000 + 安定化500ステップを完了させるため延長）
     for i in range(total_simulation_steps):
         # ベース姿勢を取得（姿勢フィードバック制御用）
@@ -538,6 +546,131 @@ def main():
             # standing_anglesを更新（段階的に）
             standing_angles = interpolated_angles
         
+        # 足踏み動作（安定化検知後）
+        if stabilization_detected and not stepping_started:
+            stepping_started = True
+            stepping_phase_start_step = i
+            # 足踏み開始時の基本姿勢角度を保存
+            base_standing_angles_for_stepping = standing_angles.copy()
+            print(f"\n  🦶 足踏み動作を開始します（ステップ{i}）...")
+        
+        # 足踏み動作の制御
+        if stepping_started:
+            # 現在のフェーズの経過ステップ数を計算
+            phase_elapsed = i - stepping_phase_start_step if stepping_phase_start_step is not None else 0
+            
+            # フェーズが終了したら次のフェーズに移行
+            if phase_elapsed >= stepping_phase_duration:
+                stepping_phase = (stepping_phase + 1) % 4  # 0→1→2→3→0のループ
+                stepping_phase_start_step = i
+                phase_elapsed = 0
+                
+                # フェーズ変更をログ出力
+                phase_names = {
+                    0: "左前足(FL)と右後ろ足(BR)を上げる",
+                    1: "左前足(FL)と右後ろ足(BR)を戻す",
+                    2: "右前足(FR)と左後ろ足(BL)を上げる",
+                    3: "右前足(FR)と左後ろ足(BL)を戻す"
+                }
+                print(f"  🦶 足踏みフェーズ変更 (ステップ{i}): {phase_names[stepping_phase]}")
+            
+            # 足踏み動作中の状態を定期的にログ出力（100ステップごと）
+            if i % 100 == 0:
+                phase_names = {
+                    0: "左前足(FL)と右後ろ足(BR)を上げる",
+                    1: "左前足(FL)と右後ろ足(BR)を戻す",
+                    2: "右前足(FR)と左後ろ足(BL)を上げる",
+                    3: "右前足(FR)と左後ろ足(BL)を戻す"
+                }
+                phase_half = stepping_phase_duration * 0.5
+                if phase_elapsed < phase_half:
+                    action_status = f"上げる動作中 (進行度: {phase_elapsed/phase_half*100:.1f}%)"
+                else:
+                    action_status = f"戻す動作中 (進行度: {(phase_elapsed-phase_half)/phase_half*100:.1f}%)"
+                
+                # 現在の姿勢と位置を取得
+                base_pos, base_orn = p.getBasePositionAndOrientation(robot_id)
+                base_euler = p.getEulerFromQuaternion(base_orn)
+                current_roll = math.degrees(base_euler[0])
+                current_pitch = math.degrees(base_euler[1])
+                
+                # 各脚の膝角度を取得
+                knee_angles = {}
+                for leg_name, joint_indices in leg_joints.items():
+                    knee_joint = joint_indices[2]  # kneeは3番目のジョイント
+                    joint_state = p.getJointState(robot_id, knee_joint)
+                    knee_angle_rad = joint_state[0]
+                    knee_angles[leg_name] = math.degrees(knee_angle_rad)
+                
+                print(f"  🦶 足踏み動作中 (ステップ{i}, フェーズ{stepping_phase}: {phase_names[stepping_phase]}, {action_status}):")
+                print(f"     姿勢: roll={current_roll:.1f}°, pitch={current_pitch:.1f}°")
+                print(f"     位置: X={base_pos[0]:.3f}, Y={base_pos[1]:.3f}, Z={base_pos[2]:.3f}")
+                print(f"     膝角度: FL={knee_angles['front_left']:.1f}°, FR={knee_angles['front_right']:.1f}°, BL={knee_angles['back_left']:.1f}°, BR={knee_angles['back_right']:.1f}°")
+            
+            # 各フェーズでの角度調整
+            if base_standing_angles_for_stepping is not None:
+                # 基本姿勢角度をコピー
+                stepping_angles = {}
+                for leg_name in leg_joints.keys():
+                    stepping_angles[leg_name] = list(base_standing_angles_for_stepping.get(leg_name, [0.0, 0.0, 1.7]))
+                
+                # フェーズに応じて脚を上げる
+                # 各フェーズは半分の時間で上げ、半分の時間で戻す
+                phase_half = stepping_phase_duration * 0.5
+                if phase_elapsed < phase_half:
+                    # 上げる動作
+                    lift_progress = phase_elapsed / phase_half  # 0.0～1.0
+                else:
+                    # 戻す動作
+                    lift_progress = 1.0 - (phase_elapsed - phase_half) / phase_half  # 1.0～0.0
+                
+                if stepping_phase == 0:  # FL+BRを上げる
+                    # 上げる動作（前脚はhipを後ろ向きに、後脚はhipを前向きに、kneeを曲げる）
+                    stepping_angles['front_left'][1] += 0.4 * lift_progress  # hipを後ろ向きに（脚を上げる）
+                    stepping_angles['front_left'][2] -= 0.3 * lift_progress  # kneeを曲げる（上げる）
+                    stepping_angles['back_right'][1] -= 0.4 * lift_progress  # hipを前向きに（脚を上げる）
+                    stepping_angles['back_right'][2] -= 0.3 * lift_progress  # kneeを曲げる（上げる）
+                elif stepping_phase == 1:  # FL+BRを戻す
+                    # 戻す動作（元の姿勢に戻す）
+                    return_progress = 1.0 - lift_progress
+                    stepping_angles['front_left'][1] = base_standing_angles_for_stepping['front_left'][1] + 0.4 * return_progress
+                    stepping_angles['front_left'][2] = base_standing_angles_for_stepping['front_left'][2] - 0.3 * return_progress
+                    stepping_angles['back_right'][1] = base_standing_angles_for_stepping['back_right'][1] - 0.4 * return_progress
+                    stepping_angles['back_right'][2] = base_standing_angles_for_stepping['back_right'][2] - 0.3 * return_progress
+                elif stepping_phase == 2:  # FR+BLを上げる
+                    # 上げる動作（前脚はhipを後ろ向きに、後脚はhipを前向きに、kneeを曲げる）
+                    stepping_angles['front_right'][1] += 0.4 * lift_progress  # hipを後ろ向きに（脚を上げる）
+                    stepping_angles['front_right'][2] -= 0.3 * lift_progress  # kneeを曲げる（上げる）
+                    stepping_angles['back_left'][1] -= 0.4 * lift_progress  # hipを前向きに（脚を上げる）
+                    stepping_angles['back_left'][2] -= 0.3 * lift_progress  # kneeを曲げる（上げる）
+                elif stepping_phase == 3:  # FR+BLを戻す
+                    # 戻す動作（元の姿勢に戻す）
+                    return_progress = 1.0 - lift_progress
+                    stepping_angles['front_right'][1] = base_standing_angles_for_stepping['front_right'][1] + 0.4 * return_progress
+                    stepping_angles['front_right'][2] = base_standing_angles_for_stepping['front_right'][2] - 0.3 * return_progress
+                    stepping_angles['back_left'][1] = base_standing_angles_for_stepping['back_left'][1] - 0.4 * return_progress
+                    stepping_angles['back_left'][2] = base_standing_angles_for_stepping['back_left'][2] - 0.3 * return_progress
+                
+                # 位置が動かないように、上げる脚の反対側の脚でバランスを取る
+                # 対角線の脚を上げる場合、もう一方の対角線の脚でバランスを取る
+                if stepping_phase == 0 or stepping_phase == 1:  # FL+BRを上げる/戻す
+                    # FR+BLでバランスを取る（hipを少し前向きに、kneeを少し伸ばす）
+                    balance_factor = 0.15  # バランス調整の強度
+                    stepping_angles['front_right'][1] -= balance_factor * lift_progress  # hipを前向きに（重心を後ろに）
+                    stepping_angles['front_right'][2] += balance_factor * lift_progress  # kneeを伸ばす（重心を下に）
+                    stepping_angles['back_left'][1] += balance_factor * lift_progress  # hipを後ろ向きに（重心を前に）
+                    stepping_angles['back_left'][2] += balance_factor * lift_progress  # kneeを伸ばす（重心を下に）
+                elif stepping_phase == 2 or stepping_phase == 3:  # FR+BLを上げる/戻す
+                    # FL+BRでバランスを取る（hipを少し前向きに、kneeを少し伸ばす）
+                    balance_factor = 0.15  # バランス調整の強度
+                    stepping_angles['front_left'][1] -= balance_factor * lift_progress  # hipを前向きに（重心を後ろに）
+                    stepping_angles['front_left'][2] += balance_factor * lift_progress  # kneeを伸ばす（重心を下に）
+                    stepping_angles['back_right'][1] += balance_factor * lift_progress  # hipを後ろ向きに（重心を前に）
+                    stepping_angles['back_right'][2] += balance_factor * lift_progress  # kneeを伸ばす（重心を下に）
+                
+                # standing_anglesを更新
+                standing_angles = stepping_angles
+        
         # 姿勢フィードバックに基づいてジョイント角度を調整
         # rollが負（左に傾く）場合、左側の脚のabductionを増やす
         roll_error = current_roll  # 目標roll=0度
@@ -548,9 +681,13 @@ def main():
                                i - standing_up_start_step >= 0 and 
                                i - standing_up_start_step < standing_up_duration)
         
+        # 足踏み中かどうかを判定
+        is_stepping_phase = stepping_started
+        
         # 接地状態を取得（立ち上がり中のみ、毎ステップ確認して即座に修正）
+        # 足踏み中は接地状態の確認をスキップ（足を上げる動作のため）
         contact_info = {}
-        if is_standing_up_phase:  # 毎ステップ接地状態を確認（即座に修正するため）
+        if is_standing_up_phase and not is_stepping_phase:  # 立ち上がり中のみ、足踏み中は除外
             leg_index_map = {'front_left': 0, 'front_right': 1, 'back_left': 2, 'back_right': 3}
             for leg_name, leg_idx in leg_index_map.items():
                 toe_link_name = f"toe{leg_idx}"
@@ -582,7 +719,8 @@ def main():
             
             # roll誤差に基づいてabductionを調整（左右バランス）
             # 立ち上がり中はrollフィードバックゲインを増やして左右バランスを強化
-            roll_gain_multiplier = 2.0 if is_standing_up_phase else 1.0  # 立ち上がり中は2倍に
+            # 足踏み中も姿勢フィードバックを強化して位置を維持
+            roll_gain_multiplier = 2.0 if (is_standing_up_phase or is_stepping_phase) else 1.0  # 立ち上がり中・足踏み中は2倍に
             
             if leg_name in ['front_left', 'back_left']:  # 左側の脚
                 # rollが負（左に傾く）場合、左側の脚を外側に広げる
@@ -602,24 +740,48 @@ def main():
                     # Xが正（右へ移動）の場合、右側の脚を内側に閉じる
                     adjusted_angles[abduction_idx] -= x_position_error * position_feedback_gain
             
-            # 右脚のabduction角度を左脚の逆にする（立ち上がり中のみ）
-            # 左右でモーターの回転方向が逆のため、右脚は左脚の符号を反転させる
-            if is_standing_up_phase and leg_name in ['front_right', 'back_right']:
-                # 対応する左脚のabduction角度を取得して、その符号を反転させる
-                corresponding_left_leg = 'front_left' if leg_name == 'front_right' else 'back_left'
-                try:
-                    left_abduction_joint = leg_joints[corresponding_left_leg][abduction_idx]
-                    left_abduction_state = p.getJointState(robot_id, left_abduction_joint)
-                    left_abduction_angle = left_abduction_state[0]
-                    
-                    # 左脚のabduction角度の符号を反転させる（右脚のabduction角度を左脚の逆にする）
-                    adjusted_angles[abduction_idx] = -left_abduction_angle
-                except:
-                    pass  # 左脚の角度が取得できない場合は、そのまま
+            # 左右のバランスを取る（立ち上がり中のみ）
+            # 左右でモーターの回転方向が逆の可能性があるが、左右対称に制御する
+            # 右脚を左脚に依存させるのではなく、左右が同時に目標に到達するようにする
+            if is_standing_up_phase:
+                # 対応する反対側の脚のabduction角度を取得
+                corresponding_leg = None
+                if leg_name == 'front_left':
+                    corresponding_leg = 'front_right'
+                elif leg_name == 'front_right':
+                    corresponding_leg = 'front_left'
+                elif leg_name == 'back_left':
+                    corresponding_leg = 'back_right'
+                elif leg_name == 'back_right':
+                    corresponding_leg = 'back_left'
+                
+                if corresponding_leg:
+                    try:
+                        corresponding_abduction_joint = leg_joints[corresponding_leg][abduction_idx]
+                        corresponding_abduction_state = p.getJointState(robot_id, corresponding_abduction_joint)
+                        corresponding_abduction_angle = corresponding_abduction_state[0]
+                        
+                        # 左右のabduction角度の差を計算
+                        abduction_diff = adjusted_angles[abduction_idx] - corresponding_abduction_angle
+                        
+                        # 左右のバランスを取る（左右差が大きい場合、小さくする）
+                        # ただし、rollフィードバックによる調整は維持する
+                        if abs(abduction_diff) > 0.1:  # 0.1ラジアン（約6度）以上の差がある場合
+                            # 左右のバランスを取るために、差を小さくする
+                            balance_gain = 0.2  # 左右バランス調整ゲイン
+                            if leg_name in ['front_right', 'back_right']:
+                                # 右脚の場合、左脚に合わせる（符号を反転）
+                                adjusted_angles[abduction_idx] = -corresponding_abduction_angle * (1.0 - balance_gain) + adjusted_angles[abduction_idx] * balance_gain
+                            else:
+                                # 左脚の場合、右脚に合わせる（符号を反転）
+                                adjusted_angles[abduction_idx] = -corresponding_abduction_angle * (1.0 - balance_gain) + adjusted_angles[abduction_idx] * balance_gain
+                    except:
+                        pass  # 反対側の脚の角度が取得できない場合は、そのまま
             
             # pitch誤差に基づいてhipを調整（前後バランス）
             # 立ち上がり中は姿勢フィードバックゲインを増やして前のめりを抑制
-            pitch_gain_multiplier = 2.0 if is_standing_up_phase else 1.0  # 立ち上がり中は2倍に
+            # 足踏み中も姿勢フィードバックを強化して位置を維持
+            pitch_gain_multiplier = 2.0 if (is_standing_up_phase or is_stepping_phase) else 1.0  # 立ち上がり中・足踏み中は2倍に
             
             if leg_name in ['front_left', 'front_right']:  # 前脚
                 # pitchが正（前のめり）の場合、前脚のhipを後ろ向きに
@@ -628,20 +790,43 @@ def main():
                 # pitchが正（前のめり）の場合、後脚のhipを前向きに
                 adjusted_angles[hip_idx] += pitch_error * pitch_feedback_gain * pitch_gain_multiplier
             
-            # 右脚のhip角度を左脚の逆にする（立ち上がり中のみ）
-            # 左右でモーターの回転方向が逆のため、右脚は左脚の符号を反転させる
-            if is_standing_up_phase and leg_name in ['front_right', 'back_right']:
-                # 対応する左脚のhip角度を取得して、その符号を反転させる
-                corresponding_left_leg = 'front_left' if leg_name == 'front_right' else 'back_left'
-                try:
-                    left_hip_joint = leg_joints[corresponding_left_leg][hip_idx]
-                    left_hip_state = p.getJointState(robot_id, left_hip_joint)
-                    left_hip_angle = left_hip_state[0]
-                    
-                    # 左脚のhip角度の符号を反転させる（右脚のhip角度を左脚の逆にする）
-                    adjusted_angles[hip_idx] = -left_hip_angle
-                except:
-                    pass  # 左脚の角度が取得できない場合は、そのまま
+            # 左右のhip角度のバランスを取る（立ち上がり中のみ）
+            # 左右でモーターの回転方向が逆の可能性があるが、左右対称に制御する
+            # 右脚を左脚に依存させるのではなく、左右が同時に目標に到達するようにする
+            if is_standing_up_phase:
+                # 対応する反対側の脚のhip角度を取得
+                corresponding_leg = None
+                if leg_name == 'front_left':
+                    corresponding_leg = 'front_right'
+                elif leg_name == 'front_right':
+                    corresponding_leg = 'front_left'
+                elif leg_name == 'back_left':
+                    corresponding_leg = 'back_right'
+                elif leg_name == 'back_right':
+                    corresponding_leg = 'back_left'
+                
+                if corresponding_leg:
+                    try:
+                        corresponding_hip_joint = leg_joints[corresponding_leg][hip_idx]
+                        corresponding_hip_state = p.getJointState(robot_id, corresponding_hip_joint)
+                        corresponding_hip_angle = corresponding_hip_state[0]
+                        
+                        # 左右のhip角度の差を計算
+                        hip_diff = adjusted_angles[hip_idx] - corresponding_hip_angle
+                        
+                        # 左右のバランスを取る（左右差が大きい場合、小さくする）
+                        # ただし、pitchフィードバックによる調整は維持する
+                        if abs(hip_diff) > 0.2:  # 0.2ラジアン（約11度）以上の差がある場合
+                            # 左右のバランスを取るために、差を小さくする
+                            balance_gain = 0.2  # 左右バランス調整ゲイン
+                            if leg_name in ['front_right', 'back_right']:
+                                # 右脚の場合、左脚に合わせる（符号を反転）
+                                adjusted_angles[hip_idx] = -corresponding_hip_angle * (1.0 - balance_gain) + adjusted_angles[hip_idx] * balance_gain
+                            else:
+                                # 左脚の場合、右脚に合わせる（符号を反転）
+                                adjusted_angles[hip_idx] = -corresponding_hip_angle * (1.0 - balance_gain) + adjusted_angles[hip_idx] * balance_gain
+                    except:
+                        pass  # 反対側の脚の角度が取得できない場合は、そのまま
             
             # 右前への傾きを修正するためのknee角度調整（立ち上がり中のみ）
             if is_standing_up_phase:
@@ -700,7 +885,7 @@ def main():
                     # kneeを曲げて脚を下げる
                     adjusted_angles[knee_idx] -= contact_feedback_gain * 5.0  # より積極的に修正（5倍）
             
-            # 右脚の膝角度が目標に到達しない問題を修正（左脚に合わせる）
+            # 左右の膝角度のバランスを取る（左右が同時に目標に到達するようにする）
             if is_standing_up_phase:
                 # 現在の膝角度を取得
                 try:
@@ -711,33 +896,39 @@ def main():
                     # 目標膝角度を取得
                     target_knee_angle = base_angles[knee_idx]
                     
-                    # 右脚（FR, BR）の膝角度が目標に到達していない場合、左脚に合わせる
-                    if leg_name in ['front_right', 'back_right']:
-                        knee_error = target_knee_angle - current_knee_angle
-                        if knee_error > 0.3:  # 目標より0.3ラジアン（約17度）以上小さい場合
-                            # 対応する左脚の膝角度を取得して、それに合わせる
-                            corresponding_left_leg = 'front_left' if leg_name == 'front_right' else 'back_left'
-                            try:
-                                left_knee_joint = leg_joints[corresponding_left_leg][knee_idx]
-                                left_knee_state = p.getJointState(robot_id, left_knee_joint)
-                                left_knee_angle = left_knee_state[0]
-                                
-                                # 左脚の膝角度に合わせる（右脚のknee角度を左脚と同じにする）
-                                # ただし、接地状態を考慮して、浮上している場合は曲げる
-                                leg_contact = contact_info.get(leg_name, {'is_contact': True, 'force': 40.0, 'contact_count': 4})
-                                if leg_contact['is_contact'] and leg_contact['force'] >= 20.0:  # 接地している場合のみ
-                                    # 接地している場合は、左脚の膝角度に合わせる
-                                    adjusted_angles[knee_idx] = left_knee_angle
-                                else:
-                                    # 浮上している場合は、まず接地させるためにkneeを曲げる
-                                    adjusted_angles[knee_idx] -= contact_feedback_gain * 2.0
-                            except:
-                                # 左脚の角度が取得できない場合は、目標角度に近づける
-                                leg_contact = contact_info.get(leg_name, {'is_contact': True, 'force': 40.0, 'contact_count': 4})
-                                if leg_contact['is_contact'] and leg_contact['force'] >= 20.0:  # 接地している場合のみ
-                                    adjusted_angles[knee_idx] += knee_error * 0.1  # 目標に近づける
-                                else:
-                                    adjusted_angles[knee_idx] -= contact_feedback_gain * 2.0
+                    # 対応する反対側の脚の膝角度を取得
+                    corresponding_leg = None
+                    if leg_name == 'front_left':
+                        corresponding_leg = 'front_right'
+                    elif leg_name == 'front_right':
+                        corresponding_leg = 'front_left'
+                    elif leg_name == 'back_left':
+                        corresponding_leg = 'back_right'
+                    elif leg_name == 'back_right':
+                        corresponding_leg = 'back_left'
+                    
+                    if corresponding_leg:
+                        try:
+                            corresponding_knee_joint = leg_joints[corresponding_leg][knee_idx]
+                            corresponding_knee_state = p.getJointState(robot_id, corresponding_knee_joint)
+                            corresponding_knee_angle = corresponding_knee_state[0]
+                            
+                            # 左右の膝角度の差を計算
+                            knee_diff = current_knee_angle - corresponding_knee_angle
+                            
+                            # 左右の膝角度の差が大きい場合（0.2ラジアン、約11度以上）、バランスを取る
+                            if abs(knee_diff) > 0.2:
+                                # 現在の脚が遅れている場合（角度が小さい）、目標に近づける
+                                knee_error = target_knee_angle - current_knee_angle
+                                if knee_error > 0.1:  # 目標より0.1ラジアン（約6度）以上小さい場合
+                                    leg_contact = contact_info.get(leg_name, {'is_contact': True, 'force': 40.0, 'contact_count': 4})
+                                    if leg_contact['is_contact'] and leg_contact['force'] >= 20.0:  # 接地している場合のみ
+                                        # 左右のバランスを取るために、遅れている脚を目標に近づける
+                                        # ただし、左右差を考慮して、反対側の脚に合わせすぎないようにする
+                                        balance_gain = 0.3  # 左右バランス調整ゲイン
+                                        adjusted_angles[knee_idx] += knee_error * balance_gain
+                        except:
+                            pass
                     
                     # 後脚（BL, BR）の膝角度が目標に到達していない場合、より積極的に修正
                     if leg_name in ['back_left', 'back_right']:

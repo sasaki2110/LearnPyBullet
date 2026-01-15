@@ -18,7 +18,7 @@ apt-get update && apt-get install -y libosmesa6 libgl1-mesa-dri libglx-mesa0 lib
 # 5. どこまで必要か解らない環境変数
 
 ```bash
-# Windowsホストを指す特殊なアドレスを設定
+# Windowsホストを指す特殊なアドレスを設定 とりあえず、これで動く。
 export DISPLAY=host.docker.internal:0.0
 
 # 間接レンダリングを許可する設定
