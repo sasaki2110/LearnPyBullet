@@ -51,6 +51,15 @@ class Vision60State:
         self.stepping_phase: int = 0  # 0: FL+BR上げ, 1: FL+BR戻す, 2: FR+BL上げ, 3: FR+BL戻す
         self.stepping_phase_start_step: Optional[int] = None
         self.base_standing_angles_for_stepping: Optional[Dict[str, List[float]]] = None
+        self.stepping_cycles_completed: int = 0  # 足踏みサイクル完了数
+        
+        # 歩行動作関連
+        self.walking_started: bool = False
+        self.walking_start_step: Optional[int] = None
+        self.walking_start_position: Optional[Tuple[float, float, float]] = None
+        self.walking_phase: int = 0  # 0: FL+BR上げ, 1: FL+BR戻す, 2: FR+BL上げ, 3: FR+BL戻す
+        self.walking_phase_start_step: Optional[int] = None
+        self.base_standing_angles_for_walking: Optional[Dict[str, List[float]]] = None
         
         # 前回のログ値（差分計算用）
         self.prev_roll: Optional[float] = None

@@ -86,6 +86,8 @@ class LoggingConfig:
         self.backup_count = 5
         self.log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         self.date_format = '%Y-%m-%d %H:%M:%S'
+        # 起動時のログローテーションを有効にするかどうか（環境変数で制御、デフォルトは有効）
+        self.rotate_on_startup = os.getenv('LOG_ROTATE_ON_STARTUP', 'true').lower() == 'true'
         
     def setup_logging(self, log_level: str = "INFO", initialize: bool = True) -> logging.Logger:
         """
@@ -98,6 +100,10 @@ class LoggingConfig:
         Returns:
             設定済みのルートロガー
         """
+        # 起動時にログローテーションを実行
+        if initialize and self.rotate_on_startup:
+            self._rotate_logs_on_startup()
+        
         # ルートロガーを作成
         root_logger = logging.getLogger('p08_vision60')
         root_logger.setLevel(getattr(logging, log_level.upper()))
@@ -215,6 +221,41 @@ class LoggingConfig:
             
         except Exception as e:
             logger.error(f"❌ [LOGGING] エラーログファイルハンドラー設定エラー: {e}")
+    
+    def _rotate_logs_on_startup(self) -> None:
+        """
+        起動時に既存のログファイルをローテーション（バックアップ）
+        
+        既存のログファイルを`.1`拡張子でバックアップし、
+        新しいログファイルで開始できるようにする
+        世代は1代のみ（p08_vision60.log.1）
+        """
+        try:
+            # メインログファイルのローテーション
+            backup_file = f"{self.log_file}.1"
+            if os.path.exists(self.log_file):
+                # 既存の`.1`ファイルがあれば削除（1世代のみ保持）
+                if os.path.exists(backup_file):
+                    os.remove(backup_file)
+                
+                # 既存のログファイルを`.1`にリネーム
+                os.rename(self.log_file, backup_file)
+                print(f"📁 [LOGGING] 既存のログファイルをバックアップしました: {backup_file}")
+            
+            # エラーログファイルのローテーション
+            error_backup_file = f"{self.error_log_file}.1"
+            if os.path.exists(self.error_log_file):
+                # 既存の`.1`ファイルがあれば削除（1世代のみ保持）
+                if os.path.exists(error_backup_file):
+                    os.remove(error_backup_file)
+                
+                # 既存のエラーログファイルを`.1`にリネーム
+                os.rename(self.error_log_file, error_backup_file)
+                print(f"📁 [LOGGING] 既存のエラーログファイルをバックアップしました: {error_backup_file}")
+                
+        except Exception as e:
+            # ログローテーションのエラーは無視（既存のログファイルが使用中の場合など）
+            print(f"⚠️ [LOGGING] ログローテーション中にエラーが発生しました（無視します）: {e}")
 
 
 def setup_logging(log_level: str = "INFO", initialize: bool = True) -> logging.Logger:

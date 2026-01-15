@@ -218,6 +218,54 @@ class Logger:
                 logger.info(f"     足先位置: 取得失敗（一部のリンクが見つかりませんでした）")
     
     @classmethod
+    def log_walking_status(
+        cls,
+        step: int,
+        phase: int,
+        phase_names: Dict[int, str],
+        action_status: str,
+        current_roll: float,
+        current_pitch: float,
+        base_pos: tuple,
+        distance: float,
+        knee_angles: Dict[str, float],
+        logger: logging.Logger,
+        contact_states: Optional[Dict[str, tuple]] = None
+    ):
+        """
+        歩行動作の状態をログ出力
+        
+        Args:
+            step: 現在のステップ
+            phase: 現在のフェーズ
+            phase_names: フェーズ名のマッピング
+            action_status: 動作状態（"上げる/蹴る動作中"など）
+            current_roll: 現在のroll（度）
+            current_pitch: 現在のpitch（度）
+            base_pos: ベース位置
+            distance: 歩行距離（m）
+            knee_angles: 各脚の膝角度（度）
+            contact_states: 各脚の接地状態 {(leg_name): (contact_points, force)}
+        """
+        logger.info(f"  🚶 歩行動作中 (ステップ{step}, フェーズ{phase}: {phase_names.get(phase, 'Unknown')}, {action_status}):")
+        logger.info(f"     姿勢: roll={current_roll:.1f}°, pitch={current_pitch:.1f}°")
+        logger.info(f"     位置: X={base_pos[0]:.3f}, Y={base_pos[1]:.3f}, Z={base_pos[2]:.3f}")
+        logger.info(f"     歩行距離: {distance:.3f}m / {config.WALKING_TARGET_DISTANCE:.1f}m ({distance/config.WALKING_TARGET_DISTANCE*100:.1f}%)")
+        logger.info(f"     膝角度: FL={knee_angles.get('front_left', 0.0):.1f}°, "
+              f"FR={knee_angles.get('front_right', 0.0):.1f}°, "
+              f"BL={knee_angles.get('back_left', 0.0):.1f}°, "
+              f"BR={knee_angles.get('back_right', 0.0):.1f}°")
+        if contact_states:
+            fl_contact = contact_states.get('front_left', (0, 0.0))
+            fr_contact = contact_states.get('front_right', (0, 0.0))
+            bl_contact = contact_states.get('back_left', (0, 0.0))
+            br_contact = contact_states.get('back_right', (0, 0.0))
+            logger.info(f"     接地状態: FL={'接地' if fl_contact[0] > 0 else '浮上'}({fl_contact[0]}点, {fl_contact[1]:.1f}N), "
+                  f"FR={'接地' if fr_contact[0] > 0 else '浮上'}({fr_contact[0]}点, {fr_contact[1]:.1f}N), "
+                  f"BL={'接地' if bl_contact[0] > 0 else '浮上'}({bl_contact[0]}点, {bl_contact[1]:.1f}N), "
+                  f"BR={'接地' if br_contact[0] > 0 else '浮上'}({br_contact[0]}点, {br_contact[1]:.1f}N)")
+    
+    @classmethod
     def log_reset_stats(cls, reset_count: int, reset_reasons_count: Dict[str, int], total_steps: int, logger: logging.Logger):
         """
         リセット統計をログ出力

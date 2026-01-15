@@ -28,9 +28,9 @@ class PostureController:
         
         Args:
             is_standing_up: 立ち上がり中かどうか
-            is_stepping: 足踏み中かどうか
+            is_stepping: 足踏み中または歩行中かどうか
         """
-        # 足踏み中は姿勢フィードバック制御を無効化（足踏み動作と競合しないように）
+        # 足踏み中または歩行中は姿勢フィードバック制御を無効化（動作と競合しないように）
         if is_stepping:
             return
         

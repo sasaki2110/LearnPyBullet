@@ -57,7 +57,8 @@ class SteppingController:
         Args:
             step: 現在のステップ
         """
-        if not self.state.stepping_started:
+        # 歩行が開始されたら足踏みを停止
+        if not self.state.stepping_started or self.state.walking_started:
             return
         
         # 現在のフェーズの経過ステップ数を計算
@@ -80,7 +81,8 @@ class SteppingController:
             
             # フェーズ3から0に戻ったら1サイクル完了
             if prev_phase == 3 and self.state.stepping_phase == 0:
-                logger.info(f"  🦶 足踏み1サイクル完了 (ステップ{step})")
+                self.state.stepping_cycles_completed += 1
+                logger.info(f"  🦶 足踏み{self.state.stepping_cycles_completed}サイクル完了 (ステップ{step})")
             
             logger.info(f"  🦶 足踏みフェーズ変更 (ステップ{step}): {self.phase_names[self.state.stepping_phase]}")
         

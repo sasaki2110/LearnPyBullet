@@ -13,6 +13,8 @@ from .utils.state import Vision60State
 from .utils.joint_control import JointController
 from .utils.standing_control import StandingController
 from .utils.stepping_control import SteppingController
+from .utils.walking_control import WalkingController
+from .utils.falling_forward_check import FallingForwardCheck
 from .utils.posture_control import PostureController
 from .utils.reset_handler import ResetHandler
 from .utils.stabilization_detector import StabilizationDetector
@@ -47,6 +49,8 @@ def main():
     joint_controller = JointController(robot_model, state)
     standing_controller = StandingController(robot_model, state)
     stepping_controller = SteppingController(robot_model, state)
+    walking_controller = WalkingController(robot_model, state)
+    falling_forward_check = FallingForwardCheck(robot_model, state)
     posture_controller = PostureController(robot_model, state)
     reset_handler = ResetHandler(robot_model, state)
     stabilization_detector = StabilizationDetector(robot_model, state)
@@ -77,19 +81,31 @@ def main():
         # 安定化検知
         stabilization_detector.check_stabilization(step)
         
-        # 足踏み動作
-        stepping_controller.start_stepping(step)
-        stepping_controller.update_stepping(step)
-        is_stepping = state.stepping_started
+        # 前方転倒チェック（安定化検知後に自動開始、足踏み・歩行の代わり）
+        falling_forward_check.start_check(step)
+        falling_forward_check.update_check(step)
+        is_checking = falling_forward_check.check_started
         
-        # 姿勢フィードバック制御
-        posture_controller.apply_posture_feedback(is_standing_up, is_stepping)
+        # 足踏み動作（チェック中は無効化）
+        if not is_checking:
+            stepping_controller.start_stepping(step)
+            stepping_controller.update_stepping(step)
+        is_stepping = state.stepping_started and not state.walking_started and not is_checking
+        
+        # 歩行動作（チェック中は無効化）
+        if not is_checking:
+            walking_controller.start_walking(step)
+            walking_controller.update_walking(step)
+        is_walking = state.walking_started and not is_checking
+        
+        # 姿勢フィードバック制御（チェック中は無効化）
+        posture_controller.apply_posture_feedback(is_standing_up, is_stepping or is_walking or is_checking)
         
         # ジョイント制御
         joint_controller.apply_joint_control(is_standing_up)
         
-        # リセットチェック
-        reset_handler.check_and_reset(step, is_standing_up)
+        # リセットチェック（チェック中は位置移動によるリセットを無効化）
+        reset_handler.check_and_reset(step, is_standing_up, is_walking or is_checking)
         
         # シミュレーションステップ
         p.stepSimulation()

@@ -46,7 +46,7 @@ class Config:
     # カメラ設定
     CAMERA_DISTANCE: float = 2.0
     #CAMERA_YAW: float = 45.0
-    CAMERA_YAW: float = 0.0
+    CAMERA_YAW: float = 45.0
     CAMERA_PITCH: float = -30.0
     
     # ジョイント構造
@@ -99,7 +99,24 @@ class Config:
     
     # 足踏み動作設定
     STEPPING_PHASE_DURATION: int = 240  # 各フェーズの継続時間（ステップ数、0.5秒 = 240ステップ @ 1/480秒、1サイクル=2秒）
+    STEPPING_CYCLES_BEFORE_WALKING: int = 2  # 歩行開始前に必要な足踏みサイクル数
     LEG_LIFT_HEIGHT: float = 0.05  # 足を上げる高さ（m、未使用）
+    
+    # 歩行動作設定
+    WALKING_PHASE_DURATION: int = 240  # 各フェーズの継続時間（ステップ数、足踏みと同じ）
+    WALKING_TARGET_DISTANCE: float = 3.0  # 目標歩行距離（m）
+    # 足を上げる動作
+    WALKING_HIP_LIFT_ANGLE: float = 0.3  # 足を上げる際のhip角度調整量（ラジアン、後ろ向きに）
+    WALKING_KNEE_LIFT_ANGLE: float = 0.5  # 足を上げる際のknee角度調整量（ラジアン、曲げる）
+    # 足を前に出す動作
+    WALKING_HIP_FORWARD_ANGLE: float = 0.5  # 前に出す際のhip角度調整量（ラジアン、前向きに、0.4→0.5に増加）
+    # 足を着地させる動作
+    WALKING_KNEE_LAND_ANGLE: float = 0.4  # 着地時にkneeを伸ばす角度調整量（ラジアン、0.3→0.4に増加）
+    # 後ろに蹴る動作
+    WALKING_HIP_PUSH_ANGLE: float = 0.6  # 後ろに蹴る際のhip角度調整量（ラジアン、前向きに、0.5→0.6に増加）
+    WALKING_KNEE_PUSH_ANGLE: float = 0.3  # 後ろに蹴る際のknee角度調整量（ラジアン、kneeを伸ばして後ろに蹴る、0.2→0.3に増加）
+    # 足を後ろに引っ張る動作（重心を前に移動）
+    WALKING_HIP_PULL_ANGLE: float = 0.4  # 後ろに引っ張る際のhip角度調整量（ラジアン、後ろ向きに、0.3→0.4に増加）
     
     # ロボットの色設定（RGBA、各値は0.0～1.0）
     # アルファ値は0.5（半透明）に設定（change_robot_colorメソッドで自動的に適用される）
@@ -107,15 +124,18 @@ class Config:
     ROBOT_COLOR_STEPPING: List[float] = field(default_factory=lambda: [0.2, 0.8, 0.3, 1.0])  # 足踏み中: 緑系
     ROBOT_COLOR_STANDING_UP: List[float] = field(default_factory=lambda: [0.9, 0.6, 0.2, 1.0])  # 立ち上がり中: オレンジ系
     ROBOT_COLOR_FINISHED: List[float] = field(default_factory=lambda: [0.8, 0.2, 0.8, 1.0])  # 終了待機中: 紫系
+    ROBOT_COLOR_FALLING_FORWARD_CHECK: List[float] = field(default_factory=lambda: [0.9, 0.1, 0.1, 0.3])  # 前方転倒チェック中: 赤系（透明度低め）
     
     # シミュレーション設定
     # 足踏み開始（約ステップ2220）から0.5秒×4フェーズ（2秒/サイクル）を複数サイクル実行
-    # 計算: 2220（足踏み開始） + 240×4×5（5サイクル×2秒） = 7020ステップ → 12000ステップ（余裕を持たせる）
-    TOTAL_SIMULATION_STEPS: int = 12000  # 総シミュレーションステップ数
+    # その後、歩行を3m実行（約20-30サイクル必要と仮定）
+    # 計算: 2220（足踏み開始） + 240×4×2（2サイクル×2秒） + 240×4×30（30サイクル×2秒） = 約31000ステップ → 35000ステップ（余裕を持たせる）
+    TOTAL_SIMULATION_STEPS: int = 35000  # 総シミュレーションステップ数
     
     # ログ出力設定
     STANDING_UP_LOG_INTERVAL: int = 100  # 立ち上がり進行度ログの間隔（ステップ数）
     STEPPING_LOG_INTERVAL: int = 100  # 足踏み動作ログの間隔（ステップ数）
+    WALKING_LOG_INTERVAL: int = 100  # 歩行動作ログの間隔（ステップ数）
     
     def __post_init__(self):
         """初期化後の処理"""
