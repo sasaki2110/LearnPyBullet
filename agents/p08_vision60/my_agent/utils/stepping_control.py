@@ -70,10 +70,17 @@ class SteppingController:
             self.state.stepping_phase_start_step = step
             phase_elapsed = 0
             
-            # フェーズ3から0に戻ったら1サイクル完了（オリジナルの色に戻す）
-            if prev_phase == 3 and self.state.stepping_phase == 0:
+            # 各フェーズの開始時に色を変更（足踏みのタイミングと同期）
+            # フェーズ0, 2（足を上げる）: 緑色
+            # フェーズ1, 3（足を戻す）: オリジナルの色（グレー）
+            if self.state.stepping_phase == 0 or self.state.stepping_phase == 2:
+                self.robot_model.change_robot_color(config.ROBOT_COLOR_STEPPING)
+            else:  # フェーズ1, 3
                 self.robot_model.restore_original_colors()
-                logger.info(f"  🦶 足踏み1サイクル完了 (ステップ{step}): オリジナルの色に戻しました")
+            
+            # フェーズ3から0に戻ったら1サイクル完了
+            if prev_phase == 3 and self.state.stepping_phase == 0:
+                logger.info(f"  🦶 足踏み1サイクル完了 (ステップ{step})")
             
             logger.info(f"  🦶 足踏みフェーズ変更 (ステップ{step}): {self.phase_names[self.state.stepping_phase]}")
         
@@ -95,18 +102,19 @@ class SteppingController:
             else:
                 lift_progress = 1.0 - (phase_elapsed - phase_half) / phase_half
             
-            # フェーズに応じた角度調整（調整量を小さくして安定性を向上）
-            # 角度調整量を小さく（0.4→0.15、0.3→0.1）して、姿勢のバランスを崩さないようにする
+            # フェーズに応じた角度調整（足を上げるために調整量を増加）
+            # 実機の動作に合わせて、両脚とも股関節を後ろ側に回し、膝を閉じることで足先を垂直に上げる
+            # ログ分析により、水平方向の移動を抑え、垂直方向の上昇を増やすため、膝の角度を増やす
             if self.state.stepping_phase == 0:  # FL+BRを上げる
-                stepping_angles['front_left'][1] += 0.15 * lift_progress  # hip: 約8.6度
-                stepping_angles['front_left'][2] -= 0.1 * lift_progress   # knee: 約5.7度
-                stepping_angles['back_right'][1] -= 0.15 * lift_progress
-                stepping_angles['back_right'][2] -= 0.1 * lift_progress
+                stepping_angles['front_left'][1] += 0.3 * lift_progress  # hip: 約17度（後ろ向きに）- 0.4から0.3に減らして水平移動を抑制
+                stepping_angles['front_left'][2] -= 0.5 * lift_progress   # knee: 約29度（曲げる）- 0.3から0.5に増やして垂直上昇を増やす
+                stepping_angles['back_right'][1] += 0.3 * lift_progress  # hip: 約17度（後ろ向きに）
+                stepping_angles['back_right'][2] -= 0.5 * lift_progress  # knee: 約29度（曲げる）
             elif self.state.stepping_phase == 2:  # FR+BLを上げる
-                stepping_angles['front_right'][1] += 0.15 * lift_progress
-                stepping_angles['front_right'][2] -= 0.1 * lift_progress
-                stepping_angles['back_left'][1] -= 0.15 * lift_progress
-                stepping_angles['back_left'][2] -= 0.1 * lift_progress
+                stepping_angles['front_right'][1] += 0.3 * lift_progress  # hip: 約17度（後ろ向きに）
+                stepping_angles['front_right'][2] -= 0.5 * lift_progress  # knee: 約29度（曲げる）
+                stepping_angles['back_left'][1] += 0.3 * lift_progress   # hip: 約17度（後ろ向きに）
+                stepping_angles['back_left'][2] -= 0.5 * lift_progress  # knee: 約29度（曲げる）
             
             self.state.standing_angles = stepping_angles
     
@@ -140,6 +148,19 @@ class SteppingController:
             'back_right': 3
         }
         
+        # 足先位置を取得
+        toe_positions = {}
+        for leg_name, leg_idx in leg_index_map.items():
+            toe_link_idx = self.robot_model.get_toe_link_index(leg_idx)
+            if toe_link_idx is not None and toe_link_idx >= 0:
+                try:
+                    toe_state = p.getLinkState(self.state.robot_id, toe_link_idx)
+                    toe_positions[leg_name] = toe_state[0]  # ワールド座標での位置
+                except:
+                    toe_positions[leg_name] = None
+            else:
+                toe_positions[leg_name] = None
+        
         for leg_name, leg_idx in leg_index_map.items():
             toe_link_idx = self.robot_model.get_toe_link_index(leg_idx)
             if toe_link_idx is not None and toe_link_idx >= 0:
@@ -163,5 +184,6 @@ class SteppingController:
             base_pos=base_pos,
             knee_angles=knee_angles,
             logger=logger,
-            contact_states=contact_states
+            contact_states=contact_states,
+            toe_positions=toe_positions
         )

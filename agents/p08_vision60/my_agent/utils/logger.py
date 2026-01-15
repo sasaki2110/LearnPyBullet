@@ -165,7 +165,8 @@ class Logger:
         base_pos: tuple,
         knee_angles: Dict[str, float],
         logger: logging.Logger,
-        contact_states: Optional[Dict[str, tuple]] = None
+        contact_states: Optional[Dict[str, tuple]] = None,
+        toe_positions: Optional[Dict[str, Optional[tuple]]] = None
     ):
         """
         足踏み動作の状態をログ出力
@@ -180,6 +181,7 @@ class Logger:
             base_pos: ベース位置
             knee_angles: 各脚の膝角度（度）
             contact_states: 各脚の接地状態 {(leg_name): (contact_points, force)}
+            toe_positions: 各脚の足先位置 {(leg_name): (x, y, z)} or None
         """
         logger.info(f"  🦶 足踏み動作中 (ステップ{step}, フェーズ{phase}: {phase_names.get(phase, 'Unknown')}, {action_status}):")
         logger.info(f"     姿勢: roll={current_roll:.1f}°, pitch={current_pitch:.1f}°")
@@ -197,6 +199,23 @@ class Logger:
                   f"FR={'接地' if fr_contact[0] > 0 else '浮上'}({fr_contact[0]}点, {fr_contact[1]:.1f}N), "
                   f"BL={'接地' if bl_contact[0] > 0 else '浮上'}({bl_contact[0]}点, {bl_contact[1]:.1f}N), "
                   f"BR={'接地' if br_contact[0] > 0 else '浮上'}({br_contact[0]}点, {br_contact[1]:.1f}N)")
+        # 足先位置をログ出力
+        if toe_positions:
+            fl_pos = toe_positions.get('front_left')
+            fr_pos = toe_positions.get('front_right')
+            bl_pos = toe_positions.get('back_left')
+            br_pos = toe_positions.get('back_right')
+            
+            if fl_pos and fr_pos and bl_pos and br_pos:
+                logger.info(f"     足先位置: FL=({fl_pos[0]:.3f}, {fl_pos[1]:.3f}, {fl_pos[2]:.3f}), "
+                      f"FR=({fr_pos[0]:.3f}, {fr_pos[1]:.3f}, {fr_pos[2]:.3f})")
+                logger.info(f"                BL=({bl_pos[0]:.3f}, {bl_pos[1]:.3f}, {bl_pos[2]:.3f}), "
+                      f"BR=({br_pos[0]:.3f}, {br_pos[1]:.3f}, {br_pos[2]:.3f})")
+                # 平均足先高さを計算
+                avg_toe_height = (fl_pos[2] + fr_pos[2] + bl_pos[2] + br_pos[2]) / 4.0
+                logger.info(f"     平均足先高さ: {avg_toe_height:.3f}m")
+            else:
+                logger.info(f"     足先位置: 取得失敗（一部のリンクが見つかりませんでした）")
     
     @classmethod
     def log_reset_stats(cls, reset_count: int, reset_reasons_count: Dict[str, int], total_steps: int, logger: logging.Logger):

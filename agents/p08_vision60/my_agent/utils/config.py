@@ -45,7 +45,8 @@ class Config:
     
     # カメラ設定
     CAMERA_DISTANCE: float = 2.0
-    CAMERA_YAW: float = 45.0
+    #CAMERA_YAW: float = 45.0
+    CAMERA_YAW: float = 0.0
     CAMERA_PITCH: float = -30.0
     
     # ジョイント構造
@@ -97,17 +98,20 @@ class Config:
     STABILITY_CHECK_INTERVAL: int = 10  # 安定性チェックの間隔（ステップ数）
     
     # 足踏み動作設定
-    STEPPING_PHASE_DURATION: int = 600  # 各フェーズの継続時間（ステップ数）
+    STEPPING_PHASE_DURATION: int = 240  # 各フェーズの継続時間（ステップ数、0.5秒 = 240ステップ @ 1/480秒、1サイクル=2秒）
     LEG_LIFT_HEIGHT: float = 0.05  # 足を上げる高さ（m、未使用）
     
     # ロボットの色設定（RGBA、各値は0.0～1.0）
+    # アルファ値は0.5（半透明）に設定（change_robot_colorメソッドで自動的に適用される）
     ROBOT_COLOR_NORMAL: List[float] = field(default_factory=lambda: [0.3, 0.5, 0.8, 1.0])  # 通常時: 青系
     ROBOT_COLOR_STEPPING: List[float] = field(default_factory=lambda: [0.2, 0.8, 0.3, 1.0])  # 足踏み中: 緑系
     ROBOT_COLOR_STANDING_UP: List[float] = field(default_factory=lambda: [0.9, 0.6, 0.2, 1.0])  # 立ち上がり中: オレンジ系
     ROBOT_COLOR_FINISHED: List[float] = field(default_factory=lambda: [0.8, 0.2, 0.8, 1.0])  # 終了待機中: 紫系
     
     # シミュレーション設定
-    TOTAL_SIMULATION_STEPS: int = 3000  # 総シミュレーションステップ数
+    # 足踏み開始（約ステップ2220）から0.5秒×4フェーズ（2秒/サイクル）を複数サイクル実行
+    # 計算: 2220（足踏み開始） + 240×4×5（5サイクル×2秒） = 7020ステップ → 12000ステップ（余裕を持たせる）
+    TOTAL_SIMULATION_STEPS: int = 12000  # 総シミュレーションステップ数
     
     # ログ出力設定
     STANDING_UP_LOG_INTERVAL: int = 100  # 立ち上がり進行度ログの間隔（ステップ数）

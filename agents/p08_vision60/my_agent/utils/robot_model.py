@@ -202,48 +202,48 @@ class RobotModel:
     
     def change_robot_color(self, rgba_color: List[float]):
         """
-        ロボット全体の色を変更
+        胴体（ベースリンク）の色を変更（半透明）
         
         Args:
             rgba_color: RGBA色 [r, g, b, a] (各値は0.0～1.0)
+                       アルファ値が指定されていない場合は0.5（半透明）に設定
         """
-        num_links = p.getNumJoints(self.robot_id)
+        # アルファ値が指定されていない、または1.0の場合は半透明（0.5）に設定
+        if len(rgba_color) < 4 or rgba_color[3] >= 1.0:
+            rgba_color = list(rgba_color[:3]) + [0.5]  # 半透明に設定
         
-        # ベースリンクを含むすべてのリンクの色を変更
-        for link_idx in range(-1, num_links):  # -1はベースリンク
-            try:
-                p.changeVisualShape(
-                    self.robot_id,
-                    link_idx,
-                    rgbaColor=rgba_color
-                )
-            except Exception as e:
-                # 色変更に失敗しても続行
-                pass
+        # ベースリンク（-1）だけの色を変更（胴体の立方体）
+        try:
+            p.changeVisualShape(
+                self.robot_id,
+                -1,  # ベースリンクのみ
+                rgbaColor=rgba_color
+            )
+        except Exception as e:
+            # 色変更に失敗しても続行
+            pass
     
     def restore_original_colors(self):
-        """オリジナルの色に戻す"""
+        """オリジナルの色に戻す（ベースリンクのみ）"""
         if not self.original_colors:
             # オリジナルの色が保存されていない場合は何もしない
             return
         
-        num_links = p.getNumJoints(self.robot_id)
-        restored_count = 0
-        
-        # ベースリンクを含むすべてのリンクの色を復元
-        for link_idx in range(-1, num_links):  # -1はベースリンク
-            if link_idx in self.original_colors:
-                try:
-                    rgba_color = self.original_colors[link_idx]
-                    # リストでない場合はリストに変換
-                    if not isinstance(rgba_color, list):
-                        rgba_color = list(rgba_color)
-                    p.changeVisualShape(
-                        self.robot_id,
-                        link_idx,
-                        rgbaColor=rgba_color
-                    )
-                    restored_count += 1
-                except Exception:
-                    # 色変更に失敗しても続行
-                    pass
+        # ベースリンク（-1）の色だけを復元
+        if -1 in self.original_colors:
+            try:
+                rgba_color = self.original_colors[-1]
+                # リストでない場合はリストに変換
+                if not isinstance(rgba_color, list):
+                    rgba_color = list(rgba_color)
+                # アルファ値を半透明（0.5）に設定（元の透明度を維持する場合は元の値を保持）
+                if len(rgba_color) < 4:
+                    rgba_color = list(rgba_color[:3]) + [0.5]
+                p.changeVisualShape(
+                    self.robot_id,
+                    -1,  # ベースリンクのみ
+                    rgbaColor=rgba_color
+                )
+            except Exception:
+                # 色変更に失敗しても続行
+                pass
