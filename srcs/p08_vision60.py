@@ -27,6 +27,11 @@ from utils.posture_control import PostureController
 from utils.reset_handler import ResetHandler
 from utils.logging_config import setup_logging, get_logger, get_log_level
 
+# ジョイント制御パラメータ（変更可能）
+JOINT_CONTROL_FORCE = 80.0        # 最大トルク（N・m）
+JOINT_CONTROL_POSITION_GAIN = 0.5  # Pゲイン（位置ゲイン）
+JOINT_CONTROL_VELOCITY_GAIN = 1.0  # Dゲイン（速度ゲイン）
+
 
 def print_section(title: str):
     """セクション区切りを表示"""
@@ -320,9 +325,9 @@ def main():
                             other_joint_idx,
                             p.POSITION_CONTROL,
                             targetPosition=current_other_angle,
-                            force=50.0,
-                            positionGain=0.5,
-                            velocityGain=1.0
+                            force=JOINT_CONTROL_FORCE,
+                            positionGain=JOINT_CONTROL_POSITION_GAIN,
+                            velocityGain=JOINT_CONTROL_VELOCITY_GAIN
                         )
                 
                 # 動かすジョイントだけをPOSITION_CONTROLで制御
@@ -331,9 +336,9 @@ def main():
                     joint_idx,
                     p.POSITION_CONTROL,
                     targetPosition=test_angle,
-                    force=50.0,
-                    positionGain=0.5,
-                    velocityGain=1.0
+                    force=JOINT_CONTROL_FORCE,
+                    positionGain=JOINT_CONTROL_POSITION_GAIN,
+                    velocityGain=JOINT_CONTROL_VELOCITY_GAIN
                 )
                 
                 # シミュレーションを進める
@@ -374,9 +379,9 @@ def main():
                         other_joint_idx,
                         p.POSITION_CONTROL,
                         targetPosition=current_other_angle,
-                        force=50.0,
-                        positionGain=0.5,
-                        velocityGain=1.0
+                        force=JOINT_CONTROL_FORCE,
+                        positionGain=JOINT_CONTROL_POSITION_GAIN,
+                        velocityGain=JOINT_CONTROL_VELOCITY_GAIN
                     )
             
             p.setJointMotorControl2(
@@ -384,9 +389,9 @@ def main():
                 joint_idx,
                 p.POSITION_CONTROL,
                 targetPosition=initial_angles[joint_idx],
-                force=50.0,
-                positionGain=0.5,
-                velocityGain=1.0
+                force=JOINT_CONTROL_FORCE,
+                positionGain=JOINT_CONTROL_POSITION_GAIN,
+                velocityGain=JOINT_CONTROL_VELOCITY_GAIN
             )
             
             # シミュレーションを進める
@@ -451,9 +456,9 @@ def main():
                         other_joint_idx,
                         p.POSITION_CONTROL,
                         targetPosition=current_other_angle,
-                        force=50.0,
-                        positionGain=0.5,
-                        velocityGain=1.0
+                        force=JOINT_CONTROL_FORCE,
+                        positionGain=JOINT_CONTROL_POSITION_GAIN,
+                        velocityGain=JOINT_CONTROL_VELOCITY_GAIN
                     )
             
             # 左側
@@ -462,9 +467,9 @@ def main():
                 left_idx,
                 p.POSITION_CONTROL,
                 targetPosition=test_angle,
-                force=50.0,
-                positionGain=0.5,
-                velocityGain=1.0
+                force=JOINT_CONTROL_FORCE,
+                positionGain=JOINT_CONTROL_POSITION_GAIN,
+                velocityGain=JOINT_CONTROL_VELOCITY_GAIN
             )
             
             # 右側
@@ -473,9 +478,9 @@ def main():
                 right_idx,
                 p.POSITION_CONTROL,
                 targetPosition=test_angle,
-                force=50.0,
-                positionGain=0.5,
-                velocityGain=1.0
+                force=JOINT_CONTROL_FORCE,
+                positionGain=JOINT_CONTROL_POSITION_GAIN,
+                velocityGain=JOINT_CONTROL_VELOCITY_GAIN
             )
             
             # シミュレーションを進める
@@ -552,9 +557,9 @@ def main():
                         other_joint_idx,
                         p.POSITION_CONTROL,
                         targetPosition=current_other_angle,
-                        force=50.0,
-                        positionGain=0.5,
-                        velocityGain=1.0
+                        force=JOINT_CONTROL_FORCE,
+                        positionGain=JOINT_CONTROL_POSITION_GAIN,
+                        velocityGain=JOINT_CONTROL_VELOCITY_GAIN
                     )
             
             p.setJointMotorControl2(
@@ -562,18 +567,18 @@ def main():
                 left_idx,
                 p.POSITION_CONTROL,
                 targetPosition=initial_angles[left_idx],
-                force=50.0,
-                positionGain=0.5,
-                velocityGain=1.0
+                force=JOINT_CONTROL_FORCE,
+                positionGain=JOINT_CONTROL_POSITION_GAIN,
+                velocityGain=JOINT_CONTROL_VELOCITY_GAIN
             )
             p.setJointMotorControl2(
                 robot_id,
                 right_idx,
                 p.POSITION_CONTROL,
                 targetPosition=initial_angles[right_idx],
-                force=50.0,
-                positionGain=0.5,
-                velocityGain=1.0
+                force=JOINT_CONTROL_FORCE,
+                positionGain=JOINT_CONTROL_POSITION_GAIN,
+                velocityGain=JOINT_CONTROL_VELOCITY_GAIN
             )
             
             # シミュレーションを進める
@@ -632,9 +637,9 @@ def main():
                         other_joint_idx,
                         p.POSITION_CONTROL,
                         targetPosition=current_other_angle,
-                        force=50.0,
-                        positionGain=0.5,
-                        velocityGain=1.0
+                        force=JOINT_CONTROL_FORCE,
+                        positionGain=JOINT_CONTROL_POSITION_GAIN,
+                        velocityGain=JOINT_CONTROL_VELOCITY_GAIN
                     )
             
             # 左側
@@ -643,9 +648,9 @@ def main():
                 left_idx,
                 p.POSITION_CONTROL,
                 targetPosition=test_angle,
-                force=50.0,
-                positionGain=0.5,
-                velocityGain=1.0
+                force=JOINT_CONTROL_FORCE,
+                positionGain=JOINT_CONTROL_POSITION_GAIN,
+                velocityGain=JOINT_CONTROL_VELOCITY_GAIN
             )
             
             # 右側
@@ -654,9 +659,9 @@ def main():
                 right_idx,
                 p.POSITION_CONTROL,
                 targetPosition=test_angle,
-                force=50.0,
-                positionGain=0.5,
-                velocityGain=1.0
+                force=JOINT_CONTROL_FORCE,
+                positionGain=JOINT_CONTROL_POSITION_GAIN,
+                velocityGain=JOINT_CONTROL_VELOCITY_GAIN
             )
             
             # シミュレーションを進める
@@ -733,9 +738,9 @@ def main():
                         other_joint_idx,
                         p.POSITION_CONTROL,
                         targetPosition=current_other_angle,
-                        force=50.0,
-                        positionGain=0.5,
-                        velocityGain=1.0
+                        force=JOINT_CONTROL_FORCE,
+                        positionGain=JOINT_CONTROL_POSITION_GAIN,
+                        velocityGain=JOINT_CONTROL_VELOCITY_GAIN
                     )
             
             p.setJointMotorControl2(
@@ -743,18 +748,18 @@ def main():
                 left_idx,
                 p.POSITION_CONTROL,
                 targetPosition=initial_angles[left_idx],
-                force=50.0,
-                positionGain=0.5,
-                velocityGain=1.0
+                force=JOINT_CONTROL_FORCE,
+                positionGain=JOINT_CONTROL_POSITION_GAIN,
+                velocityGain=JOINT_CONTROL_VELOCITY_GAIN
             )
             p.setJointMotorControl2(
                 robot_id,
                 right_idx,
                 p.POSITION_CONTROL,
                 targetPosition=initial_angles[right_idx],
-                force=50.0,
-                positionGain=0.5,
-                velocityGain=1.0
+                force=JOINT_CONTROL_FORCE,
+                positionGain=JOINT_CONTROL_POSITION_GAIN,
+                velocityGain=JOINT_CONTROL_VELOCITY_GAIN
             )
             
             # シミュレーションを進める
